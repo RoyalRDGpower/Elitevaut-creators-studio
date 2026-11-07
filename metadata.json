@@ -1,0 +1,7 @@
+{
+  "name": "Elite Hustle Content Studio",
+  "description": "Mobile-first AI social media content generator and draft management dashboard for Elite Hustle Vault Central.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
