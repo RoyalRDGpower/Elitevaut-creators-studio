@@ -452,14 +452,14 @@ app.get('/api/drafts', (_req: Request, res: Response) => {
 });
 
 app.post('/api/drafts', (req: Request, res: Response) => {
-  const { title, summary, url, tone, focusAngle, platforms } = req.body;
+  const { id, title, summary, url, tone, focusAngle, platforms } = req.body;
   if (!title) {
     return res.status(400).json({ error: 'Draft title is required.' });
   }
 
   const drafts = readDrafts();
   const newDraft = {
-    id: 'draft-' + Date.now() + '-' + Math.random().toString(36).substr(2, 6),
+    id: id || ('draft-' + Date.now() + '-' + Math.random().toString(36).substr(2, 6)),
     title: title.trim(),
     summary: (summary || '').trim(),
     url: (url || '').trim(),
@@ -483,7 +483,21 @@ app.put('/api/drafts/:id', (req: Request, res: Response) => {
   const index = drafts.findIndex((d) => d.id === id);
 
   if (index === -1) {
-    return res.status(404).json({ error: 'Draft not found.' });
+    // Resilient upsert if draft was stored locally
+    const createdDraft = {
+      id,
+      title: title !== undefined ? title.trim() : 'Untitled Draft',
+      summary: summary !== undefined ? summary.trim() : '',
+      url: url !== undefined ? url.trim() : '',
+      tone: tone || 'authoritative',
+      focusAngle: focusAngle || 'actionable',
+      platforms: platforms || {},
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    drafts.unshift(createdDraft);
+    writeDrafts(drafts);
+    return res.json({ draft: createdDraft });
   }
 
   const existing = drafts[index];
@@ -506,13 +520,7 @@ app.put('/api/drafts/:id', (req: Request, res: Response) => {
 app.delete('/api/drafts/:id', (req: Request, res: Response) => {
   const { id } = req.params;
   let drafts = readDrafts();
-  const initialLength = drafts.length;
   drafts = drafts.filter((d) => d.id !== id);
-
-  if (drafts.length === initialLength) {
-    return res.status(404).json({ error: 'Draft not found.' });
-  }
-
   writeDrafts(drafts);
   return res.json({ success: true, message: 'Draft deleted successfully.' });
 });

@@ -2,6 +2,27 @@ import { Draft, PlatformsData, ToneType, FocusAngleType } from '../types';
 
 const LOCAL_STORAGE_KEY = 'elite_hustle_vault_drafts';
 
+function getLocalDrafts(): Draft[] {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {
+    console.error('Failed reading local drafts', e);
+  }
+  return [];
+}
+
+function setLocalDrafts(drafts: Draft[]): void {
+  try {
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(drafts));
+  } catch (e) {
+    console.error('Failed writing local drafts', e);
+  }
+}
+
 export async function extractUrlData(url: string): Promise<{ url: string; title: string; summary: string }> {
   const res = await fetch('/api/extract-url', {
     method: 'POST',
@@ -45,9 +66,9 @@ export async function fetchDrafts(): Promise<Draft[]> {
     const res = await fetch('/api/drafts');
     if (res.ok) {
       const data = await res.json();
-      if (Array.isArray(data.drafts) && data.drafts.length > 0) {
-        // Cache to local storage
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data.drafts));
+      if (Array.isArray(data.drafts)) {
+        // Sync local cache with server (including empty state!)
+        setLocalDrafts(data.drafts);
         return data.drafts;
       }
     }
@@ -55,39 +76,33 @@ export async function fetchDrafts(): Promise<Draft[]> {
     console.warn('Backend drafts fetch failed, using local backup', err);
   }
 
-  // Fallback to local storage
-  const local = localStorage.getItem(LOCAL_STORAGE_KEY);
-  if (local) {
-    try {
-      return JSON.parse(local);
-    } catch (e) {
-      console.error('Error parsing local drafts', e);
-    }
-  }
-  return [];
+  // Fallback to local storage if network or offline
+  return getLocalDrafts();
 }
 
 export async function saveDraft(draft: Omit<Draft, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<Draft> {
+  const isUpdate = !!draft.id;
+  const draftId = draft.id || ('draft-' + Date.now() + '-' + Math.random().toString(36).substr(2, 6));
+
   try {
-    const isUpdate = !!draft.id;
     const url = isUpdate ? `/api/drafts/${draft.id}` : '/api/drafts';
     const method = isUpdate ? 'PUT' : 'POST';
 
     const res = await fetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(draft),
+      body: JSON.stringify({ ...draft, id: draftId }),
     });
 
     if (res.ok) {
       const data = await res.json();
       const savedDraft: Draft = data.draft;
-      // Sync local storage
-      const current = await fetchDrafts();
-      const updated = isUpdate
+      // Sync local storage directly without duplicate fetch
+      const current = getLocalDrafts();
+      const updated = current.some((d) => d.id === savedDraft.id)
         ? current.map((d) => (d.id === savedDraft.id ? savedDraft : d))
         : [savedDraft, ...current.filter((d) => d.id !== savedDraft.id)];
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
+      setLocalDrafts(updated);
       return savedDraft;
     }
   } catch (err) {
@@ -97,31 +112,22 @@ export async function saveDraft(draft: Omit<Draft, 'id' | 'createdAt' | 'updated
   // Local fallback creation
   const now = new Date().toISOString();
   const fallbackDraft: Draft = {
-    id: draft.id || 'draft-local-' + Date.now(),
+    id: draftId,
     title: draft.title,
     summary: draft.summary,
     url: draft.url,
     tone: draft.tone,
     focusAngle: draft.focusAngle,
     platforms: draft.platforms,
-    createdAt: now,
+    createdAt: (draft as any).createdAt || now,
     updatedAt: now,
   };
 
-  const local = localStorage.getItem(LOCAL_STORAGE_KEY);
-  let drafts: Draft[] = [];
-  if (local) {
-    try {
-      drafts = JSON.parse(local);
-    } catch {}
-  }
-
-  if (draft.id) {
-    drafts = drafts.map((d) => (d.id === draft.id ? fallbackDraft : d));
-  } else {
-    drafts.unshift(fallbackDraft);
-  }
-  localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(drafts));
+  const current = getLocalDrafts();
+  const updated = current.some((d) => d.id === fallbackDraft.id)
+    ? current.map((d) => (d.id === fallbackDraft.id ? fallbackDraft : d))
+    : [fallbackDraft, ...current];
+  setLocalDrafts(updated);
   return fallbackDraft;
 }
 
@@ -129,25 +135,19 @@ export async function deleteDraft(id: string): Promise<boolean> {
   try {
     const res = await fetch(`/api/drafts/${id}`, { method: 'DELETE' });
     if (res.ok) {
-      const current = await fetchDrafts();
+      const current = getLocalDrafts();
       const filtered = current.filter((d) => d.id !== id);
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(filtered));
+      setLocalDrafts(filtered);
       return true;
     }
   } catch (err) {
     console.warn('Backend delete draft failed, updating locally', err);
   }
 
-  const local = localStorage.getItem(LOCAL_STORAGE_KEY);
-  if (local) {
-    try {
-      const drafts: Draft[] = JSON.parse(local);
-      const filtered = drafts.filter((d) => d.id !== id);
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(filtered));
-      return true;
-    } catch {}
-  }
-  return false;
+  const current = getLocalDrafts();
+  const filtered = current.filter((d) => d.id !== id);
+  setLocalDrafts(filtered);
+  return true;
 }
 
 export async function copyToClipboard(text: string): Promise<boolean> {

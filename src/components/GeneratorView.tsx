@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   PlatformsData,
   ToneType,
@@ -24,6 +24,8 @@ import {
   Sliders,
   ChevronRight,
   MessageSquare,
+  Users,
+  RotateCcw,
 } from 'lucide-react';
 import { extractUrlData, generateSocialContent, saveDraft, copyToClipboard } from '../utils/api';
 
@@ -48,7 +50,14 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
   const [summary, setSummary] = useState(initialSummary);
   const [tone, setTone] = useState<ToneType>('authoritative');
   const [focusAngle, setFocusAngle] = useState<FocusAngleType>('actionable');
-  const [targetAudience, setTargetAudience] = useState('High-Performing Solo Operators & Digital Founders');
+  const [targetAudience, setTargetAudience] = useState('Solo Founders & Digital Builders');
+
+  // Update when initial props change
+  useEffect(() => {
+    if (initialTitle) setTitle(initialTitle);
+    if (initialSummary) setSummary(initialSummary);
+    if (initialUrl) setUrl(initialUrl);
+  }, [initialTitle, initialSummary, initialUrl]);
 
   // Async States
   const [isExtracting, setIsExtracting] = useState(false);
@@ -66,6 +75,17 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [hasSavedCurrent, setHasSavedCurrent] = useState(false);
 
+  // Clear Form
+  const handleClearForm = () => {
+    setUrl('');
+    setTitle('');
+    setSummary('');
+    setGeneratedPlatforms(null);
+    setErrorMessage(null);
+    setHasSavedCurrent(false);
+    showToast('info', 'Form Cleared', 'Ready for new article content.');
+  };
+
   // Sample Article Loader
   const handleLoadSample = () => {
     setUrl('https://elitehustlevaultcentral.com/blog/asymmetric-digital-leverage');
@@ -73,6 +93,7 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
     setSummary('A systematic operational breakdown of how solopreneurs replace traditional 40-hour work weeks with automated knowledge vaults, AI micro-tools, and high-margin productized systems. Covers pricing transformation, asset compounding, and eliminating client drag.');
     setTone('authoritative');
     setFocusAngle('actionable');
+    setTargetAudience('Solo Founders & Digital Builders');
     setErrorMessage(null);
     showToast('info', 'Vault Blueprint Sample Loaded', 'Click "Generate Social Drafts" to create your multi-platform assets.');
   };
@@ -92,7 +113,7 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
       showToast('success', 'Article Metadata Extracted', 'Title and summary populated successfully.');
     } catch (err: any) {
       setErrorMessage(err.message || 'Could not extract article content. You can manually enter the title and summary.');
-      showToast('error', 'Extraction Failed', 'Feel free to type or paste the title and summary manually.');
+      showToast('error', 'Extraction Notice', 'You can type or paste the title and summary directly.');
     } finally {
       setIsExtracting(false);
     }
@@ -114,7 +135,6 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
     setErrorMessage(null);
     setHasSavedCurrent(false);
 
-    // Realistic stepped progress for premium UX
     setGenerationStep('Analyzing core article thesis & audience hooks...');
     const stepTimer1 = setTimeout(() => {
       setGenerationStep('Engineering platform-specific narratives (FB, IG, LI, X)...');
@@ -135,12 +155,12 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
 
       setGeneratedPlatforms(result);
       setEditableFullPost(result[activePlatform]?.fullPost || '');
+      setIsEditing(false);
       showToast('success', 'Content Generated Successfully!', 'Your 4-platform promotional drafts are ready below.');
       
-      // Smooth scroll to generated section on mobile
       setTimeout(() => {
         document.getElementById('results-section')?.scrollIntoView({ behavior: 'smooth' });
-      }, 100);
+      }, 150);
     } catch (err: any) {
       setErrorMessage(err.message || 'Error generating content. Please retry.');
       showToast('error', 'Generation Error', err.message);
@@ -154,9 +174,13 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
 
   // Platform Tab Switch
   const handlePlatformChange = (p: PlatformKey) => {
+    // If currently editing, commit edits for active platform before switching
+    if (isEditing && generatedPlatforms) {
+      handleSaveInlineEdit();
+    }
     setActivePlatform(p);
     if (generatedPlatforms) {
-      setEditableFullPost(generatedPlatforms[p].fullPost);
+      setEditableFullPost(generatedPlatforms[p]?.fullPost || '');
     }
     setIsEditing(false);
   };
@@ -182,7 +206,7 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
   // Single Platform Copy
   const handleCopyPlatform = async (pKey: PlatformKey) => {
     if (!generatedPlatforms) return;
-    const textToCopy = isEditing ? editableFullPost : generatedPlatforms[pKey].fullPost;
+    const textToCopy = isEditing && activePlatform === pKey ? editableFullPost : (generatedPlatforms[pKey]?.fullPost || '');
     const success = await copyToClipboard(textToCopy);
     if (success) {
       setCopiedKey(pKey);
@@ -197,31 +221,48 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
   const handleCopyAll = async () => {
     if (!generatedPlatforms) return;
     const combined = `=== ELITE HUSTLE VAULT CENTRAL CONTENT PACK ===\nTitle: ${title}\nArticle URL: ${url || 'N/A'}\n\n` +
-      `--- [ LINKEDIN POST ] ---\n${generatedPlatforms.linkedin.fullPost}\n\n` +
-      `--- [ X (TWITTER) POST & THREAD ] ---\n${generatedPlatforms.x.fullPost}\n\n` +
-      `--- [ INSTAGRAM CAPTION & CAROUSEL ] ---\n${generatedPlatforms.instagram.fullPost}\n\n` +
-      `--- [ FACEBOOK POST ] ---\n${generatedPlatforms.facebook.fullPost}\n`;
+      `--- [ LINKEDIN POST ] ---\n${generatedPlatforms.linkedin?.fullPost || ''}\n\n` +
+      `--- [ X (TWITTER) POST & THREAD ] ---\n${generatedPlatforms.x?.fullPost || ''}\n\n` +
+      `--- [ INSTAGRAM CAPTION & CAROUSEL ] ---\n${generatedPlatforms.instagram?.fullPost || ''}\n\n` +
+      `--- [ FACEBOOK POST ] ---\n${generatedPlatforms.facebook?.fullPost || ''}\n`;
 
     const success = await copyToClipboard(combined);
     if (success) {
       setCopiedKey('all');
-      showToast('success', 'All 4 Platforms Copied!', 'The complete content package has been copied to your clipboard.');
+      showToast('success', 'All 4 Channels Copied!', 'Complete campaign package copied to clipboard.');
       setTimeout(() => setCopiedKey(null), 2500);
     }
   };
 
-  // Save to Drafts Vault
+  // Save to Drafts Vault (Commits any active inline edits first)
   const handleSaveDraft = async () => {
     if (!generatedPlatforms) return;
     setIsSaving(true);
     try {
+      // Ensure any uncommitted inline edits are included
+      let platformsToSave = generatedPlatforms;
+      if (isEditing) {
+        platformsToSave = { ...generatedPlatforms };
+        if (activePlatform === 'facebook') {
+          platformsToSave.facebook = { ...platformsToSave.facebook, fullPost: editableFullPost };
+        } else if (activePlatform === 'instagram') {
+          platformsToSave.instagram = { ...platformsToSave.instagram, fullPost: editableFullPost };
+        } else if (activePlatform === 'linkedin') {
+          platformsToSave.linkedin = { ...platformsToSave.linkedin, fullPost: editableFullPost };
+        } else if (activePlatform === 'x') {
+          platformsToSave.x = { ...platformsToSave.x, fullPost: editableFullPost };
+        }
+        setGeneratedPlatforms(platformsToSave);
+        setIsEditing(false);
+      }
+
       const saved = await saveDraft({
         title: title.trim(),
         summary: summary.trim(),
         url: url.trim(),
         tone,
         focusAngle,
-        platforms: generatedPlatforms,
+        platforms: platformsToSave,
       });
       setHasSavedCurrent(true);
       onDraftSaved(saved);
@@ -241,10 +282,10 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
       `URL: ${url || 'N/A'}\nTone: ${tone} | Focus: ${focusAngle}\n` +
       `Generated: ${new Date().toLocaleString()}\n` +
       `==================================================\n\n` +
-      `1. LINKEDIN DRAFT\n-----------------\n${generatedPlatforms.linkedin.fullPost}\n\n` +
-      `2. X (TWITTER) DRAFT\n--------------------\n${generatedPlatforms.x.fullPost}\n\n` +
-      `3. INSTAGRAM DRAFT\n-------------------\n${generatedPlatforms.instagram.fullPost}\n\n` +
-      `4. FACEBOOK DRAFT\n------------------\n${generatedPlatforms.facebook.fullPost}\n`;
+      `1. LINKEDIN DRAFT\n-----------------\n${generatedPlatforms.linkedin?.fullPost || ''}\n\n` +
+      `2. X (TWITTER) DRAFT\n--------------------\n${generatedPlatforms.x?.fullPost || ''}\n\n` +
+      `3. INSTAGRAM DRAFT\n-------------------\n${generatedPlatforms.instagram?.fullPost || ''}\n\n` +
+      `4. FACEBOOK DRAFT\n------------------\n${generatedPlatforms.facebook?.fullPost || ''}\n`;
 
     const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
     const downloadUrl = URL.createObjectURL(blob);
@@ -265,9 +306,13 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
     { key: 'facebook' as PlatformKey, label: 'Facebook', icon: 'FB', color: 'text-blue-400' },
   ];
 
+  const currentPostLength = isEditing
+    ? editableFullPost.length
+    : (generatedPlatforms?.[activePlatform]?.fullPost?.length || 0);
+
   return (
     <div className="space-y-6 md:space-y-8 animate-in fade-in duration-200">
-      {/* Header & Quick Sample */}
+      {/* Header & Quick Actions */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="font-['Outfit'] text-2xl md:text-3xl font-extrabold text-white tracking-tight">
@@ -278,14 +323,26 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={handleLoadSample}
-          className="self-start sm:self-auto flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-xl transition-all active:scale-95"
-        >
-          <Sparkles className="w-3.5 h-3.5" />
-          <span>Load Vault Sample</span>
-        </button>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          {(title || summary || url) && (
+            <button
+              type="button"
+              onClick={handleClearForm}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-400 hover:text-slate-200 bg-[#101c36] hover:bg-[#18284d] border border-[#18284d] rounded-xl transition-all min-h-[40px]"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Clear</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleLoadSample}
+            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-xl transition-all active:scale-95 min-h-[40px]"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Load Sample</span>
+          </button>
+        </div>
       </div>
 
       {/* Error Alert Banner */}
@@ -298,9 +355,9 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
           </div>
           <button
             onClick={() => setErrorMessage(null)}
-            className="text-rose-400 hover:text-rose-100"
+            className="text-rose-400 hover:text-rose-100 p-1"
           >
-            Dismiss
+            ✕
           </button>
         </div>
       )}
@@ -382,16 +439,47 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
             rows={4}
             value={summary}
             onChange={(e) => setSummary(e.target.value)}
-            placeholder="Paste the core thesis, key bullets, or excerpt from the article. The more specific the insights, the more engaging the hooks will be."
+            placeholder="Paste the core thesis, key takeaways, or excerpt. The more specific the insights, the higher-converting the hooks will be."
             className="w-full px-4 py-3 bg-[#070c18] border border-[#18284d] focus:border-amber-400 focus:ring-1 focus:ring-amber-400 rounded-xl text-sm text-slate-100 placeholder-slate-500 transition-colors leading-relaxed resize-y"
           />
         </div>
 
-        {/* Strategy & Tone Options */}
+        {/* Strategy, Tone & Target Audience */}
         <div className="pt-2 border-t border-[#18284d] space-y-4">
           <div className="flex items-center gap-2 text-xs font-semibold text-amber-400 uppercase tracking-wider">
             <Sliders className="w-4 h-4 text-amber-400" />
-            <span>2. Strategic Voice & Angle</span>
+            <span>2. Strategic Voice & Positioning</span>
+          </div>
+
+          {/* Target Audience Selector */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <label className="font-semibold text-slate-200 flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5 text-amber-400" />
+                <span>Target Audience Segment</span>
+              </label>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                'Solo Founders & Digital Builders',
+                'Side Hustlers & Aspiring Creators',
+                'High-Ticket Consultants & Coaches',
+                'Enterprise Operators & Executives',
+              ].map((aud) => (
+                <button
+                  key={aud}
+                  type="button"
+                  onClick={() => setTargetAudience(aud)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors min-h-[36px] ${
+                    targetAudience === aud
+                      ? 'bg-amber-400 text-slate-950 font-bold shadow-sm'
+                      : 'bg-[#070c18] text-slate-300 hover:text-white border border-[#18284d]'
+                  }`}
+                >
+                  {aud}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -405,7 +493,7 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
                   { id: 'authoritative' as ToneType, label: 'Authoritative', desc: 'Direct thought leader' },
                   { id: 'conversational' as ToneType, label: 'Conversational', desc: 'Authentic founder story' },
                   { id: 'high-energy' as ToneType, label: 'High-Energy', desc: 'Urgent & motivating' },
-                  { id: 'executive' as ToneType, label: 'Executive', desc: 'Strategic & corporate' },
+                  { id: 'executive' as ToneType, label: 'Executive', desc: 'Strategic & leverage' },
                 ].map((item) => (
                   <button
                     key={item.id}
@@ -427,12 +515,12 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
             {/* Focus Angle Selector */}
             <div className="space-y-1.5">
               <label className="block text-xs font-semibold text-slate-200">
-                Core Promotional Angle
+                Promotional Angle
               </label>
               <div className="grid grid-cols-2 gap-2">
                 {[
                   { id: 'actionable' as FocusAngleType, label: 'Actionable Steps', desc: 'Tactical execution' },
-                  { id: 'contrarian' as FocusAngleType, label: 'Contrarian Truth', desc: 'Challenges norms' },
+                  { id: 'contrarian' as FocusAngleType, label: 'Contrarian Truth', desc: 'Challenges status quo' },
                   { id: 'case-study' as FocusAngleType, label: 'Case Study', desc: 'Results & metrics' },
                   { id: 'growth' as FocusAngleType, label: 'Mindset / Scaling', desc: 'High leverage' },
                 ].map((item) => (
@@ -476,7 +564,7 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
           </button>
 
           {isGenerating && generationStep && (
-            <div className="mt-3 p-3 rounded-xl bg-[#070c18] border border-amber-500/30 flex items-center gap-3 text-xs text-amber-300 animate-pulse">
+            <div className="mt-3 p-3.5 rounded-xl bg-[#070c18] border border-amber-500/30 flex items-center gap-3 text-xs text-amber-300 animate-pulse">
               <RefreshCw className="w-4 h-4 animate-spin shrink-0 text-amber-400" />
               <span>{generationStep}</span>
             </div>
@@ -502,7 +590,7 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
               <button
                 type="button"
                 onClick={handleCopyAll}
-                className="px-3.5 py-2 text-xs font-semibold text-slate-200 bg-[#101c36] hover:bg-[#18284d] border border-[#1e325c] rounded-xl flex items-center gap-1.5 transition-all min-h-[40px]"
+                className="px-3.5 py-2 text-xs font-semibold text-slate-200 bg-[#101c36] hover:bg-[#18284d] border border-[#1e325c] rounded-xl flex items-center gap-1.5 transition-all min-h-[44px]"
               >
                 {copiedKey === 'all' ? (
                   <Check className="w-3.5 h-3.5 text-emerald-400" />
@@ -516,10 +604,10 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
                 type="button"
                 onClick={handleSaveDraft}
                 disabled={isSaving || hasSavedCurrent}
-                className={`px-4 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all min-h-[40px] ${
+                className={`px-4 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all min-h-[44px] ${
                   hasSavedCurrent
                     ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                    : 'bg-amber-400 hover:bg-amber-300 text-slate-950 shadow-md shadow-amber-500/20'
+                    : 'bg-amber-400 hover:bg-amber-300 text-slate-950 shadow-md shadow-amber-500/20 active:scale-95'
                 }`}
               >
                 {hasSavedCurrent ? (
@@ -569,8 +657,18 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
                 <span className="font-['Outfit'] text-base md:text-lg font-bold text-white capitalize">
                   {activePlatform === 'x' ? 'X (Twitter)' : activePlatform} Draft
                 </span>
-                <span className="text-xs text-slate-400">
-                  · {generatedPlatforms[activePlatform]?.fullPost.length || 0} characters
+                <span
+                  className={`text-xs font-mono px-2 py-0.5 rounded ${
+                    activePlatform === 'x'
+                      ? currentPostLength <= 280
+                        ? 'text-emerald-400 bg-emerald-950/40 border border-emerald-500/30'
+                        : 'text-amber-400 bg-amber-950/40 border border-amber-500/30'
+                      : 'text-slate-400 bg-[#070c18]'
+                  }`}
+                >
+                  {activePlatform === 'x'
+                    ? `${currentPostLength} / 280 chars`
+                    : `${currentPostLength} chars`}
                 </span>
               </div>
 
@@ -580,9 +678,9 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
                   <button
                     type="button"
                     onClick={() => setActiveViewMode('formatted')}
-                    className={`px-2.5 py-1 text-xs rounded-md font-medium transition-colors ${
+                    className={`px-2.5 py-1 text-xs rounded-md font-medium transition-colors min-h-[32px] ${
                       activeViewMode === 'formatted'
-                        ? 'bg-[#101c36] text-amber-400'
+                        ? 'bg-[#101c36] text-amber-400 font-semibold'
                         : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
@@ -591,9 +689,9 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
                   <button
                     type="button"
                     onClick={() => setActiveViewMode('structured')}
-                    className={`px-2.5 py-1 text-xs rounded-md font-medium transition-colors ${
+                    className={`px-2.5 py-1 text-xs rounded-md font-medium transition-colors min-h-[32px] ${
                       activeViewMode === 'structured'
-                        ? 'bg-[#101c36] text-amber-400'
+                        ? 'bg-[#101c36] text-amber-400 font-semibold'
                         : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
@@ -604,15 +702,21 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
                 {/* Edit Toggle */}
                 <button
                   type="button"
-                  onClick={() => setIsEditing(!isEditing)}
+                  onClick={() => {
+                    if (isEditing) {
+                      handleSaveInlineEdit();
+                    } else {
+                      setIsEditing(true);
+                    }
+                  }}
                   className={`px-3 py-1.5 text-xs font-medium rounded-lg border flex items-center gap-1.5 transition-colors min-h-[36px] ${
                     isEditing
-                      ? 'bg-amber-400/20 text-amber-300 border-amber-400/40'
+                      ? 'bg-amber-400/20 text-amber-300 border-amber-400/40 font-semibold'
                       : 'bg-[#101c36] text-slate-300 border-[#1e325c] hover:text-white'
                   }`}
                 >
                   <Edit3 className="w-3.5 h-3.5" />
-                  <span>{isEditing ? 'Cancel Edit' : 'Edit'}</span>
+                  <span>{isEditing ? 'Save Text' : 'Edit'}</span>
                 </button>
 
                 {/* Copy Button */}
@@ -640,7 +744,7 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
             {isEditing ? (
               <div className="space-y-3">
                 <div className="flex items-center justify-between text-xs text-amber-300">
-                  <span className="font-semibold">Inline Editor: Make your customizations below</span>
+                  <span className="font-semibold">Inline Editor: Customize copy directly</span>
                   <span className="font-mono text-slate-400">{editableFullPost.length} chars</span>
                 </div>
                 <textarea
@@ -653,7 +757,7 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      setEditableFullPost(generatedPlatforms[activePlatform].fullPost);
+                      setEditableFullPost(generatedPlatforms[activePlatform]?.fullPost || '');
                       setIsEditing(false);
                     }}
                     className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200"
@@ -665,7 +769,7 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
                     onClick={handleSaveInlineEdit}
                     className="px-4 py-2 text-xs font-bold text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-lg shadow-sm"
                   >
-                    Save Edits
+                    Confirm Edits
                   </button>
                 </div>
               </div>
@@ -675,8 +779,8 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
                   {generatedPlatforms[activePlatform]?.fullPost}
                 </div>
 
-                {/* Platform-specific helper preview (e.g. Instagram Carousel or X Thread) */}
-                {activePlatform === 'instagram' && generatedPlatforms.instagram.carouselSlides && (
+                {/* Instagram Carousel Slide Cards */}
+                {activePlatform === 'instagram' && generatedPlatforms.instagram?.carouselSlides && (
                   <div className="p-4 rounded-xl bg-[#0c162d] border border-amber-500/20 space-y-2.5">
                     <div className="flex items-center gap-2 text-xs font-bold text-amber-400 uppercase tracking-wider">
                       <Layers className="w-4 h-4 text-amber-400" />
@@ -684,7 +788,7 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                       {generatedPlatforms.instagram.carouselSlides.map((slide, idx) => (
-                        <div key={idx} className="p-2.5 rounded-lg bg-[#070c18] border border-[#18284d] text-slate-300 space-y-1">
+                        <div key={idx} className="p-3 rounded-lg bg-[#070c18] border border-[#18284d] text-slate-300 space-y-1">
                           <span className="text-[10px] font-bold text-amber-400 font-mono">Slide {idx + 1}</span>
                           <p>{slide}</p>
                         </div>
@@ -693,7 +797,8 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
                   </div>
                 )}
 
-                {activePlatform === 'x' && generatedPlatforms.x.threadTweets && generatedPlatforms.x.threadTweets.length > 0 && (
+                {/* X Thread Breakdown Cards */}
+                {activePlatform === 'x' && generatedPlatforms.x?.threadTweets && generatedPlatforms.x.threadTweets.length > 0 && (
                   <div className="p-4 rounded-xl bg-[#0c162d] border border-amber-500/20 space-y-2.5">
                     <div className="flex items-center gap-2 text-xs font-bold text-amber-400 uppercase tracking-wider">
                       <MessageSquare className="w-4 h-4 text-amber-400" />
@@ -701,7 +806,7 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
                     </div>
                     <div className="space-y-2 text-xs">
                       {generatedPlatforms.x.threadTweets.map((tweet, idx) => (
-                        <div key={idx} className="p-2.5 rounded-lg bg-[#070c18] border border-[#18284d] text-slate-300 space-y-1">
+                        <div key={idx} className="p-3 rounded-lg bg-[#070c18] border border-[#18284d] text-slate-300 space-y-1">
                           <div className="flex items-center justify-between text-[10px] text-amber-400 font-mono">
                             <span>Tweet {idx + 1}</span>
                             <span>{tweet.length} / 280</span>
@@ -723,17 +828,17 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
                     <button
                       type="button"
                       onClick={async () => {
-                        await copyToClipboard(generatedPlatforms[activePlatform].hook);
+                        await copyToClipboard(generatedPlatforms[activePlatform]?.hook || '');
                         showToast('info', 'Hook Copied');
                       }}
-                      className="text-slate-400 hover:text-white"
+                      className="text-slate-400 hover:text-white p-1"
                       title="Copy Hook"
                     >
                       <Copy className="w-3.5 h-3.5" />
                     </button>
                   </div>
                   <p className="text-sm font-medium text-white italic">
-                    "{generatedPlatforms[activePlatform].hook}"
+                    "{generatedPlatforms[activePlatform]?.hook}"
                   </p>
                 </div>
 
@@ -743,7 +848,7 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
                     <span>2. Narrative Body</span>
                   </div>
                   <p className="text-xs md:text-sm text-slate-200 whitespace-pre-wrap leading-relaxed">
-                    {generatedPlatforms[activePlatform].body}
+                    {generatedPlatforms[activePlatform]?.body}
                   </p>
                 </div>
 
@@ -753,7 +858,7 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
                     <span>3. Call to Action (CTA)</span>
                   </div>
                   <p className="text-xs md:text-sm font-semibold text-amber-300">
-                    {generatedPlatforms[activePlatform].callToAction}
+                    {generatedPlatforms[activePlatform]?.callToAction}
                   </p>
                 </div>
 
@@ -774,7 +879,7 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
                     <span>5. Relevant Targeted Hashtags</span>
                   </div>
                   <div className="flex flex-wrap gap-1.5 pt-1">
-                    {generatedPlatforms[activePlatform].hashtags.map((tag, i) => (
+                    {(generatedPlatforms[activePlatform]?.hashtags || []).map((tag, i) => (
                       <span key={i} className="text-xs font-mono text-slate-300 bg-[#101c36] px-2 py-1 rounded-md">
                         {tag}
                       </span>
@@ -793,7 +898,7 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
                 <button
                   type="button"
                   onClick={handleDownloadText}
-                  className="px-3 py-2 text-xs font-medium text-slate-300 hover:text-white bg-[#101c36] hover:bg-[#18284d] rounded-xl flex items-center gap-1.5 transition-colors min-h-[38px]"
+                  className="px-3.5 py-2 text-xs font-medium text-slate-300 hover:text-white bg-[#101c36] hover:bg-[#18284d] rounded-xl flex items-center gap-1.5 transition-colors min-h-[44px]"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>Download .TXT</span>
@@ -801,7 +906,7 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
                 <button
                   type="button"
                   onClick={() => handleCopyPlatform(activePlatform)}
-                  className="px-4 py-2 text-xs font-bold text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-xl flex items-center gap-1.5 shadow-sm transition-all active:scale-95 min-h-[38px]"
+                  className="px-4 py-2 text-xs font-bold text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-xl flex items-center gap-1.5 shadow-sm transition-all active:scale-95 min-h-[44px]"
                 >
                   <Copy className="w-3.5 h-3.5" />
                   <span>Copy {activePlatform.toUpperCase()} Post</span>

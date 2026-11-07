@@ -53,6 +53,8 @@ export default function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
+  const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
+
   // Draft Handlers
   const handleDraftSaved = (newDraft: Draft) => {
     setDrafts((prev) => {
@@ -70,6 +72,9 @@ export default function App() {
 
   const handleDraftDeleted = (id: string) => {
     setDrafts((prev) => prev.filter((d) => d.id !== id));
+    if (selectedDraftId === id) {
+      setSelectedDraftId(null);
+    }
   };
 
   // Navigation Helpers
@@ -79,6 +84,7 @@ export default function App() {
       summary: '',
       url: '',
     });
+    setSelectedDraftId(null);
     setActiveTab('create');
   };
 
@@ -88,15 +94,12 @@ export default function App() {
       summary: 'A deep dive into how high-performing solo operators leverage automated knowledge vaults, digital assets, and high-margin consulting to scale past $20k/month without burning out.',
       url: 'https://elitehustlevaultcentral.com/blog/vault-multiplier-5-revenue-streams',
     });
+    setSelectedDraftId(null);
     setActiveTab('create');
   };
 
   const handleSelectDraft = (draft: Draft) => {
-    setGeneratorPrefill({
-      title: draft.title,
-      summary: draft.summary,
-      url: draft.url,
-    });
+    setSelectedDraftId(draft.id);
     setActiveTab('drafts');
   };
 
@@ -106,6 +109,7 @@ export default function App() {
       summary,
       url: 'https://elitehustlevaultcentral.com/blog/strategic-blueprint',
     });
+    setSelectedDraftId(null);
     setActiveTab('create');
     showToast('info', 'Template Loaded in Studio', 'Review and generate your social assets.');
   };
@@ -150,6 +154,7 @@ export default function App() {
         {activeTab === 'drafts' && (
           <DraftsView
             drafts={drafts}
+            selectedDraftId={selectedDraftId}
             onDraftDeleted={handleDraftDeleted}
             onDraftUpdated={handleDraftUpdated}
             onNewDraftClick={handleNewPost}

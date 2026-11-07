@@ -155,11 +155,11 @@ export const PlaybookView: React.FC<PlaybookViewProps> = ({ onUseTemplate, showT
                 <button
                   onClick={() =>
                     onUseTemplate(
-                      formula.title,
-                      `Testing ${formula.title}: ${formula.example}`
+                      `Masterclass: ${formula.title}`,
+                      `${formula.example}\n\nStrategic premise: ${formula.breakdown} Designed for ambitious solo operators building compounding digital assets.`
                     )
                   }
-                  className="text-xs font-semibold text-amber-400 hover:text-amber-300 flex items-center gap-1 transition-colors min-h-[36px]"
+                  className="text-xs font-semibold text-amber-400 hover:text-amber-300 flex items-center gap-1 transition-colors min-h-[38px] px-1"
                 >
                   <span>Use in Studio</span>
                   <ArrowRight className="w-3.5 h-3.5" />

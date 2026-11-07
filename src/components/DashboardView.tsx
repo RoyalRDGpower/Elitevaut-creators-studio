@@ -211,10 +211,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <div className="grid grid-cols-4 gap-1.5">
                     <button
                       onClick={(e) =>
-                        handleQuickCopy(e, draft.platforms.linkedin.fullPost, 'LinkedIn', draft.id)
+                        handleQuickCopy(e, draft.platforms?.linkedin?.fullPost || '', 'LinkedIn', draft.id)
                       }
                       title="Copy LinkedIn Post"
-                      className="px-2 py-1.5 text-[11px] font-medium bg-[#101c36] hover:bg-amber-500 hover:text-slate-950 text-slate-300 rounded-lg transition-colors flex items-center justify-center gap-1"
+                      className="px-2 py-1.5 text-[11px] font-semibold bg-[#101c36] hover:bg-amber-400 hover:text-slate-950 text-slate-300 rounded-lg transition-colors flex items-center justify-center gap-1 min-h-[38px] active:scale-95"
                     >
                       {copiedId === `${draft.id}-LinkedIn` ? (
                         <Check className="w-3 h-3 text-emerald-400" />
@@ -226,10 +226,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                     <button
                       onClick={(e) =>
-                        handleQuickCopy(e, draft.platforms.x.fullPost, 'X', draft.id)
+                        handleQuickCopy(e, draft.platforms?.x?.fullPost || '', 'X', draft.id)
                       }
                       title="Copy X / Twitter Post"
-                      className="px-2 py-1.5 text-[11px] font-medium bg-[#101c36] hover:bg-amber-500 hover:text-slate-950 text-slate-300 rounded-lg transition-colors flex items-center justify-center gap-1"
+                      className="px-2 py-1.5 text-[11px] font-semibold bg-[#101c36] hover:bg-amber-400 hover:text-slate-950 text-slate-300 rounded-lg transition-colors flex items-center justify-center gap-1 min-h-[38px] active:scale-95"
                     >
                       {copiedId === `${draft.id}-X` ? (
                         <Check className="w-3 h-3 text-emerald-400" />
@@ -241,10 +241,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                     <button
                       onClick={(e) =>
-                        handleQuickCopy(e, draft.platforms.instagram.fullPost, 'Instagram', draft.id)
+                        handleQuickCopy(e, draft.platforms?.instagram?.fullPost || '', 'Instagram', draft.id)
                       }
                       title="Copy Instagram Caption"
-                      className="px-2 py-1.5 text-[11px] font-medium bg-[#101c36] hover:bg-amber-500 hover:text-slate-950 text-slate-300 rounded-lg transition-colors flex items-center justify-center gap-1"
+                      className="px-2 py-1.5 text-[11px] font-semibold bg-[#101c36] hover:bg-amber-400 hover:text-slate-950 text-slate-300 rounded-lg transition-colors flex items-center justify-center gap-1 min-h-[38px] active:scale-95"
                     >
                       {copiedId === `${draft.id}-Instagram` ? (
                         <Check className="w-3 h-3 text-emerald-400" />
@@ -256,10 +256,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                     <button
                       onClick={(e) =>
-                        handleQuickCopy(e, draft.platforms.facebook.fullPost, 'Facebook', draft.id)
+                        handleQuickCopy(e, draft.platforms?.facebook?.fullPost || '', 'Facebook', draft.id)
                       }
                       title="Copy Facebook Post"
-                      className="px-2 py-1.5 text-[11px] font-medium bg-[#101c36] hover:bg-amber-500 hover:text-slate-950 text-slate-300 rounded-lg transition-colors flex items-center justify-center gap-1"
+                      className="px-2 py-1.5 text-[11px] font-semibold bg-[#101c36] hover:bg-amber-400 hover:text-slate-950 text-slate-300 rounded-lg transition-colors flex items-center justify-center gap-1 min-h-[38px] active:scale-95"
                     >
                       {copiedId === `${draft.id}-Facebook` ? (
                         <Check className="w-3 h-3 text-emerald-400" />
