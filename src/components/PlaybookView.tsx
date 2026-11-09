@@ -62,8 +62,8 @@ export const PlaybookView: React.FC<PlaybookViewProps> = ({ onUseTemplate, showT
         </p>
       </div>
 
-      {/* 4 Platform Optimization Cheat Sheet */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* 5 Platform Optimization Cheat Sheet */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <div className="p-5 rounded-2xl bg-[#0b1325] border border-[#18284d] space-y-3">
           <div className="flex items-center justify-between">
             <span className="font-['Outfit'] font-bold text-white text-base">LinkedIn Mastery</span>
@@ -72,7 +72,7 @@ export const PlaybookView: React.FC<PlaybookViewProps> = ({ onUseTemplate, showT
           <ul className="text-xs text-slate-300 space-y-2 leading-relaxed">
             <li>• <strong>Line Break Spacing:</strong> Never use 4-line blocks. Single sentences maximize mobile tap-to-expand.</li>
             <li>• <strong>First 2 Lines:</strong> The "...see more" cutoff happens at line 2. Your first 140 characters must deliver a cliffhanger.</li>
-            <li>• <strong>Comments Section:</strong> Drop the article link in the post body, and re-emphasize it in your first author comment.</li>
+            <li>• <strong>Fact Integrity:</strong> Use verified facts and takeaways; avoid synthetic buzzwords and false guarantees.</li>
           </ul>
         </div>
 
@@ -82,33 +82,45 @@ export const PlaybookView: React.FC<PlaybookViewProps> = ({ onUseTemplate, showT
             <span className="text-xs font-mono text-slate-300 bg-[#101c36] px-2 py-0.5 rounded border border-slate-700">Repost Momentum</span>
           </div>
           <ul className="text-xs text-slate-300 space-y-2 leading-relaxed">
-            <li>• <strong>The Tweet 1 Rule:</strong> The standalone tweet must stand on its own feet even if nobody reads the thread.</li>
-            <li>• <strong>Thread Velocity:</strong> Keep tweet 2 through 4 punchy with 1 clear tactical takeaway each.</li>
-            <li>• <strong>Retweet Prompt:</strong> Close with a clean "Bookmark & Repost if you learned something" prompt.</li>
+            <li>• <strong>The Standalone Hook:</strong> Version C keeps strictly under 280 characters to allow direct one-tap reposting.</li>
+            <li>• <strong>Thread Continuity:</strong> Tweet 1 hooks the reader, tweets 2–3 unpack tactics, and tweet 4 closes with the source link.</li>
+            <li>• <strong>Zero Fluff:</strong> Strip filler phrases like "In today's fast-paced world" or "Unlock your potential".</li>
           </ul>
         </div>
 
         <div className="p-5 rounded-2xl bg-[#0b1325] border border-[#18284d] space-y-3">
           <div className="flex items-center justify-between">
-            <span className="font-['Outfit'] font-bold text-white text-base">Instagram Carousels</span>
-            <span className="text-xs font-mono text-pink-400 bg-pink-950/40 px-2 py-0.5 rounded border border-pink-500/20">Save / Bookmark Focus</span>
+            <span className="font-['Outfit'] font-bold text-white text-base">Threads Discourse</span>
+            <span className="text-xs font-mono text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/20">Replies & Opinion</span>
           </div>
           <ul className="text-xs text-slate-300 space-y-2 leading-relaxed">
-            <li>• <strong>Save-This Trigger:</strong> The algorithm weighs "Saves" 5x higher than passive double-tap likes.</li>
-            <li>• <strong>Slide 1 Title:</strong> Treat slide 1 as an album cover. Big font, contrast, high intrigue.</li>
-            <li>• <strong>Bio Link Callout:</strong> Explicitly mention "Link in bio to read the full Vault Central guide."</li>
+            <li>• <strong>Conversational Brevity:</strong> Keep under 500 characters. Threads prioritizes reply threads over hashtag walls.</li>
+            <li>• <strong>Contrarian Angle:</strong> Lead with an authentic founder observation or tension point to spark discussions.</li>
+            <li>• <strong>Clean Formatting:</strong> 2 to 3 short paragraphs with an open-ended debate prompt.</li>
           </ul>
         </div>
 
         <div className="p-5 rounded-2xl bg-[#0b1325] border border-[#18284d] space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="font-['Outfit'] font-bold text-white text-base">Instagram 6-Slide Carousel</span>
+            <span className="text-xs font-mono text-pink-400 bg-pink-950/40 px-2 py-0.5 rounded border border-pink-500/20">Save / Bookmark Focus</span>
+          </div>
+          <ul className="text-xs text-slate-300 space-y-2 leading-relaxed">
+            <li>• <strong>Slide 1 Hook:</strong> High-intrigue cover title paired with a strong visual cue to stop infinite scrolling.</li>
+            <li>• <strong>Slides 2–5 Flow:</strong> Progression from Problem &rarr; Root Cause &rarr; Solution &rarr; Practical Action Step.</li>
+            <li>• <strong>Slide 6 Save CTA:</strong> Explicit call to bookmark and link in bio to read the full Vault Central guide.</li>
+          </ul>
+        </div>
+
+        <div className="p-5 rounded-2xl bg-[#0b1325] border border-[#18284d] space-y-3 md:col-span-2 lg:col-span-1">
           <div className="flex items-center justify-between">
             <span className="font-['Outfit'] font-bold text-white text-base">Facebook Communities</span>
             <span className="text-xs font-mono text-blue-400 bg-blue-950/40 px-2 py-0.5 rounded border border-blue-500/20">Discussion Loops</span>
           </div>
           <ul className="text-xs text-slate-300 space-y-2 leading-relaxed">
-            <li>• <strong>Conversational Story:</strong> Frame the post as a real founder realization or lesson learned.</li>
-            <li>• <strong>The Final Question:</strong> Ask a direct, low-friction question ("What is your biggest bottleneck right now?").</li>
-            <li>• <strong>Native Link:</strong> Facebook rewards posts where users stay in comments; post link in body cleanly.</li>
+            <li>• <strong>Personal Context:</strong> Frame the takeaway with "Why this matters to digital entrepreneurs".</li>
+            <li>• <strong>High Engagement CTA:</strong> Invite founders to share their current system or bottleneck in the comments.</li>
+            <li>• <strong>Native Link Embedding:</strong> Keep the source article URL visible and clear for direct click-throughs.</li>
           </ul>
         </div>
       </div>

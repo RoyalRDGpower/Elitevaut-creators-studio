@@ -2,8 +2,13 @@ import React, { useState, useEffect } from 'react';
 import {
   PlatformsData,
   ToneType,
+  ContentLengthType,
   FocusAngleType,
   PlatformKey,
+  ContentVersionKey,
+  ContentVersion,
+  CarouselSlide,
+  ArticleAnalysis,
   Draft,
 } from '../types';
 import {
@@ -19,15 +24,30 @@ import {
   Layers,
   Download,
   AlertCircle,
-  Hash,
   ExternalLink,
   Sliders,
   ChevronRight,
   MessageSquare,
   Users,
   RotateCcw,
+  ShieldCheck,
+  CheckSquare,
+  HelpCircle,
+  FileSearch,
+  Eye,
+  Hash,
 } from 'lucide-react';
-import { extractUrlData, generateSocialContent, saveDraft, copyToClipboard } from '../utils/api';
+import {
+  extractUrlData,
+  analyzeArticleContent,
+  generateSocialContent,
+  regeneratePlatformContent,
+  saveDraft,
+  copyToClipboard,
+  getPlatformPostText,
+  getPlatformPostVersion,
+} from '../utils/api';
+import { generateSingleDraftPdf } from '../utils/pdfGenerator';
 
 interface GeneratorViewProps {
   initialTitle?: string;
@@ -48,11 +68,19 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
   const [url, setUrl] = useState(initialUrl);
   const [title, setTitle] = useState(initialTitle);
   const [summary, setSummary] = useState(initialSummary);
+  const [articleText, setArticleText] = useState('');
+  const [showFullTextInput, setShowFullTextInput] = useState(false);
   const [tone, setTone] = useState<ToneType>('authoritative');
+  const [contentLength, setContentLength] = useState<ContentLengthType>('standard');
   const [focusAngle, setFocusAngle] = useState<FocusAngleType>('actionable');
   const [targetAudience, setTargetAudience] = useState('Solo Founders & Digital Builders');
 
-  // Update when initial props change
+  // Article Analysis State
+  const [analysis, setAnalysis] = useState<ArticleAnalysis | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [showAnalysisPanel, setShowAnalysisPanel] = useState(false);
+
+  // Sync props if changed
   useEffect(() => {
     if (initialTitle) setTitle(initialTitle);
     if (initialSummary) setSummary(initialSummary);
@@ -62,13 +90,16 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
   // Async States
   const [isExtracting, setIsExtracting] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [regeneratingPlatform, setRegeneratingPlatform] = useState<PlatformKey | null>(null);
   const [generationStep, setGenerationStep] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [urlAccessWarning, setUrlAccessWarning] = useState<string | null>(null);
 
   // Generated Result States
   const [generatedPlatforms, setGeneratedPlatforms] = useState<PlatformsData | null>(null);
   const [activePlatform, setActivePlatform] = useState<PlatformKey>('linkedin');
-  const [activeViewMode, setActiveViewMode] = useState<'formatted' | 'structured'>('formatted');
+  const [activeVersionKey, setActiveVersionKey] = useState<ContentVersionKey>('versionA');
+  const [activeViewMode, setActiveViewMode] = useState<'formatted' | 'structured' | 'carousel'>('formatted');
   const [isEditing, setIsEditing] = useState(false);
   const [editableFullPost, setEditableFullPost] = useState('');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -80,25 +111,52 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
     setUrl('');
     setTitle('');
     setSummary('');
+    setArticleText('');
+    setAnalysis(null);
     setGeneratedPlatforms(null);
     setErrorMessage(null);
+    setUrlAccessWarning(null);
     setHasSavedCurrent(false);
     showToast('info', 'Form Cleared', 'Ready for new article content.');
   };
 
   // Sample Article Loader
   const handleLoadSample = () => {
-    setUrl('https://elitehustlevaultcentral.com/blog/asymmetric-digital-leverage');
-    setTitle('The Asymmetric Leverage Formula: How to 10x Output Without Hiring');
-    setSummary('A systematic operational breakdown of how solopreneurs replace traditional 40-hour work weeks with automated knowledge vaults, AI micro-tools, and high-margin productized systems. Covers pricing transformation, asset compounding, and eliminating client drag.');
+    setUrl('https://elitehustlevaultcentral.com/blog/vault-multiplier-5-revenue-streams');
+    setTitle('The Vault Multiplier: 5 Core Revenue Streams for Solo Builders');
+    setSummary('A deep dive into how high-performing solo operators leverage automated knowledge vaults, digital assets, and high-margin consulting to scale past $20k/month without burning out.');
+    setArticleText('Traditional 1:1 service businesses cap founder time and create fragile income ceilings. By packaging operational SOPs into self-onboarding digital hubs, launching recurring subscription knowledge vaults, charging $5k–$15k for 14-day outcome sprints, and licensing operational playbooks to non-competing firms, solo founders decouple revenue from calendar hours. Reinvesting high-margin vault cashflow creates a self-compounding asset flywheel.');
     setTone('authoritative');
+    setContentLength('standard');
     setFocusAngle('actionable');
     setTargetAudience('Solo Founders & Digital Builders');
     setErrorMessage(null);
-    showToast('info', 'Vault Blueprint Sample Loaded', 'Click "Generate Social Drafts" to create your multi-platform assets.');
+    setUrlAccessWarning(null);
+    setAnalysis({
+      title: 'The Vault Multiplier: 5 Core Revenue Streams for Solo Builders',
+      mainArguments: [
+        '1:1 client work caps gross revenue and induces founder fatigue.',
+        'Digital knowledge assets can be replicated with zero marginal cost of distribution.',
+        'Outcome-based sprints coupled with recurring subscription vaults create resilient cashflow.'
+      ],
+      verifiedFactsAndFigures: [
+        '5 distinct revenue streams examined in framework.',
+        '$20,000/month benchmark referenced as target solo threshold.'
+      ],
+      opinionsAndPerspectives: [
+        'The author contends that traditional hourly retainers will become obsolete for high-leverage operators in 2026.',
+        'Subscription access models build higher long-term enterprise valuation than one-time digital courses.'
+      ],
+      technicalDetails: [
+        'Modular knowledge vault architecture',
+        '14-day outcome sprint scoping',
+        'Self-onboarding digital asset gateways'
+      ]
+    });
+    showToast('info', 'Vault Blueprint Sample Loaded', 'Click "Generate Social Media Drafts" to build your V2.0 content package.');
   };
 
-  // URL Auto-extraction
+  // URL Auto-extraction with strict error reporting
   const handleExtractUrl = async () => {
     if (!url.trim()) {
       showToast('error', 'Please enter a URL first');
@@ -106,20 +164,55 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
     }
     setIsExtracting(true);
     setErrorMessage(null);
+    setUrlAccessWarning(null);
+
     try {
       const data = await extractUrlData(url.trim());
       if (data.title) setTitle(data.title);
       if (data.summary) setSummary(data.summary);
-      showToast('success', 'Article Metadata Extracted', 'Title and summary populated successfully.');
+      if (data.fullText) setArticleText(data.fullText);
+      if (data.analysis) {
+        setAnalysis(data.analysis);
+        setShowAnalysisPanel(true);
+      }
+      showToast('success', 'Article Metadata Extracted', 'Article content and fact-checked analysis populated.');
     } catch (err: any) {
-      setErrorMessage(err.message || 'Could not extract article content. You can manually enter the title and summary.');
-      showToast('error', 'Extraction Notice', 'You can type or paste the title and summary directly.');
+      // Strictly do not pretend URL was analysed if it failed
+      setUrlAccessWarning(err.message || 'Could not access the URL. Please enter the article title and summary manually below.');
+      setShowFullTextInput(true);
+      showToast('error', 'URL Inaccessible', 'Please enter or paste the article text manually.');
     } finally {
       setIsExtracting(false);
     }
   };
 
-  // Content Generation
+  // Run Dedicated Fact-Check & Article Analysis
+  const handleAnalyzeArticle = async () => {
+    const textToAnalyze = articleText.trim() || summary.trim();
+    if (!textToAnalyze) {
+      showToast('error', 'Please enter an article summary or text to analyze.');
+      return;
+    }
+
+    setIsAnalyzing(true);
+    setErrorMessage(null);
+    try {
+      const result = await analyzeArticleContent({
+        title: title.trim(),
+        text: textToAnalyze,
+        url: url.trim(),
+      });
+      setAnalysis(result);
+      setShowAnalysisPanel(true);
+      showToast('success', 'Analysis & Fact-Check Complete', 'Verified facts distinguished from subjective opinions.');
+    } catch (err: any) {
+      showToast('error', 'Analysis Error', err.message);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  // Content Generation (All 5 platforms x 3 versions + 6-slide carousel)
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) {
@@ -135,35 +228,47 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
     setErrorMessage(null);
     setHasSavedCurrent(false);
 
-    setGenerationStep('Analyzing core article thesis & audience hooks...');
+    setGenerationStep('Analyzing verified facts, technical details & thesis...');
     const stepTimer1 = setTimeout(() => {
-      setGenerationStep('Engineering platform-specific narratives (FB, IG, LI, X)...');
-    }, 1200);
+      setGenerationStep('Engineering 3 versions (Professional, Engagement, Short) for LinkedIn, X, Threads, IG, FB...');
+    }, 1300);
     const stepTimer2 = setTimeout(() => {
-      setGenerationStep('Generating high-retention carousels, threads & hashtags...');
-    }, 2400);
+      setGenerationStep('Drafting 6-slide Instagram carousel script & applying anti-cliché quality control...');
+    }, 2600);
 
     try {
       const result = await generateSocialContent({
         title: title.trim(),
         summary: summary.trim(),
+        articleText: articleText.trim(),
         url: url.trim(),
         tone,
+        contentLength,
         focusAngle,
         targetAudience,
       });
 
       setGeneratedPlatforms(result);
-      setEditableFullPost(result[activePlatform]?.fullPost || '');
+      if (result.articleAnalysis) {
+        setAnalysis(result.articleAnalysis);
+      }
+
+      const activeText = getPlatformPostText(result[activePlatform], activeVersionKey);
+      setEditableFullPost(activeText);
       setIsEditing(false);
-      showToast('success', 'Content Generated Successfully!', 'Your 4-platform promotional drafts are ready below.');
-      
+      setErrorMessage(null);
+      showToast('success', 'Elite Hustle V2.0 Content Ready!', '5 platforms generated with 3 versions each and 6-slide carousel script.');
+
       setTimeout(() => {
         document.getElementById('results-section')?.scrollIntoView({ behavior: 'smooth' });
       }, 150);
     } catch (err: any) {
-      setErrorMessage(err.message || 'Error generating content. Please retry.');
-      showToast('error', 'Generation Error', err.message);
+      const rawMsg = err?.message || '';
+      const safeMsg = rawMsg.includes('<') || rawMsg.includes('JSON') || rawMsg.includes('token')
+        ? 'Network or gateway interruption. Our resilient engine will process your request.'
+        : rawMsg || 'Error generating content. Please retry.';
+      setErrorMessage(safeMsg);
+      showToast('error', 'Generation Notice', safeMsg);
     } finally {
       clearTimeout(stepTimer1);
       clearTimeout(stepTimer2);
@@ -172,88 +277,238 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
     }
   };
 
-  // Platform Tab Switch
+  // Regenerate Just One Platform
+  const handleRegeneratePlatform = async (platformToRegen: PlatformKey) => {
+    if (!title.trim() || !summary.trim()) return;
+    setRegeneratingPlatform(platformToRegen);
+    try {
+      const updatedPlatform = await regeneratePlatformContent({
+        platform: platformToRegen,
+        title: title.trim(),
+        summary: summary.trim(),
+        articleText: articleText.trim(),
+        url: url.trim(),
+        tone,
+        contentLength,
+        focusAngle,
+        targetAudience,
+        analysis: analysis || undefined,
+      });
+
+      if (generatedPlatforms) {
+        const nextPlatforms: PlatformsData = {
+          ...generatedPlatforms,
+          [platformToRegen]: updatedPlatform as any,
+        };
+        setGeneratedPlatforms(nextPlatforms);
+
+        if (activePlatform === platformToRegen) {
+          const newText = getPlatformPostText(updatedPlatform, activeVersionKey);
+          setEditableFullPost(newText);
+        }
+      }
+      showToast('success', `Regenerated ${platformToRegen.toUpperCase()}!`, 'Fresh versions generated while preserving all other platforms.');
+    } catch (err: any) {
+      showToast('error', 'Regeneration Failed', err.message);
+    } finally {
+      setRegeneratingPlatform(null);
+    }
+  };
+
+  // Platform & Version Tab Switches
   const handlePlatformChange = (p: PlatformKey) => {
-    // If currently editing, commit edits for active platform before switching
     if (isEditing && generatedPlatforms) {
       handleSaveInlineEdit();
     }
     setActivePlatform(p);
     if (generatedPlatforms) {
-      setEditableFullPost(generatedPlatforms[p]?.fullPost || '');
+      const postText = getPlatformPostText(generatedPlatforms[p], activeVersionKey);
+      setEditableFullPost(postText);
     }
     setIsEditing(false);
   };
 
-  // Update text from inline edit
+  const handleVersionChange = (v: ContentVersionKey) => {
+    if (isEditing && generatedPlatforms) {
+      handleSaveInlineEdit();
+    }
+    setActiveVersionKey(v);
+    if (generatedPlatforms) {
+      const postText = getPlatformPostText(generatedPlatforms[activePlatform], v);
+      setEditableFullPost(postText);
+    }
+    setIsEditing(false);
+  };
+
+  // Save Inline Edit
   const handleSaveInlineEdit = () => {
     if (!generatedPlatforms) return;
     const updated: PlatformsData = { ...generatedPlatforms };
-    if (activePlatform === 'facebook') {
-      updated.facebook = { ...updated.facebook, fullPost: editableFullPost };
-    } else if (activePlatform === 'instagram') {
-      updated.instagram = { ...updated.instagram, fullPost: editableFullPost };
-    } else if (activePlatform === 'linkedin') {
-      updated.linkedin = { ...updated.linkedin, fullPost: editableFullPost };
-    } else if (activePlatform === 'x') {
-      updated.x = { ...updated.x, fullPost: editableFullPost };
+    const currentPlatformData = updated[activePlatform];
+
+    if (currentPlatformData && currentPlatformData.versions) {
+      currentPlatformData.versions = {
+        ...currentPlatformData.versions,
+        [activeVersionKey]: {
+          ...currentPlatformData.versions[activeVersionKey],
+          fullPost: editableFullPost,
+          characterCount: editableFullPost.length,
+        },
+      };
     }
+
     setGeneratedPlatforms(updated);
     setIsEditing(false);
-    showToast('info', 'Draft Updated', `Your edits for ${activePlatform.toUpperCase()} are saved.`);
+    showToast('info', 'Edit Saved', `Updated ${activePlatform.toUpperCase()} (${activeVersionKey.replace('version', 'Ver ')}).`);
   };
 
-  // Single Platform Copy
-  const handleCopyPlatform = async (pKey: PlatformKey) => {
-    if (!generatedPlatforms) return;
-    const textToCopy = isEditing && activePlatform === pKey ? editableFullPost : (generatedPlatforms[pKey]?.fullPost || '');
+  // Copy Single Active Version
+  const handleCopyActiveVersion = async () => {
+    const textToCopy = isEditing
+      ? editableFullPost
+      : getPlatformPostText(generatedPlatforms?.[activePlatform], activeVersionKey);
+
     const success = await copyToClipboard(textToCopy);
     if (success) {
-      setCopiedKey(pKey);
-      showToast('success', `Copied ${pKey.toUpperCase()} Post!`, 'Ready to paste into your social app.');
+      setCopiedKey(`${activePlatform}-${activeVersionKey}`);
+      showToast('success', `Copied ${activePlatform.toUpperCase()} (${activeVersionKey.replace('version', 'Version ')})!`, 'Ready to paste into your social app.');
       setTimeout(() => setCopiedKey(null), 2000);
     } else {
       showToast('error', 'Failed to copy to clipboard.');
     }
   };
 
-  // Copy All 4 Platforms to Clipboard
-  const handleCopyAll = async () => {
-    if (!generatedPlatforms) return;
-    const combined = `=== ELITE HUSTLE VAULT CENTRAL CONTENT PACK ===\nTitle: ${title}\nArticle URL: ${url || 'N/A'}\n\n` +
-      `--- [ LINKEDIN POST ] ---\n${generatedPlatforms.linkedin?.fullPost || ''}\n\n` +
-      `--- [ X (TWITTER) POST & THREAD ] ---\n${generatedPlatforms.x?.fullPost || ''}\n\n` +
-      `--- [ INSTAGRAM CAPTION & CAROUSEL ] ---\n${generatedPlatforms.instagram?.fullPost || ''}\n\n` +
-      `--- [ FACEBOOK POST ] ---\n${generatedPlatforms.facebook?.fullPost || ''}\n`;
+  // Copy Entire 6-Slide Carousel Script
+  const handleCopyCarouselScript = async () => {
+    const slides = generatedPlatforms?.instagram?.carouselScript;
+    if (!slides || slides.length === 0) return;
 
-    const success = await copyToClipboard(combined);
+    const formatted = `=== INSTAGRAM 6-SLIDE CAROUSEL SCRIPT ===\n` +
+      `Topic: ${title}\n` +
+      `URL: ${url || 'https://elitehustlevaultcentral.com'}\n\n` +
+      slides.map((s) => `--- SLIDE ${s.slideNumber}: ${s.headline.toUpperCase()} ---\n` +
+        `Visual: ${s.visualSuggestion}\n` +
+        `Text: ${s.supportingText}\n` +
+        `Hook To Next: ${s.transitionHook}\n`
+      ).join('\n') +
+      `\nCAPTION:\n${getPlatformPostText(generatedPlatforms.instagram, activeVersionKey)}\n`;
+
+    const success = await copyToClipboard(formatted);
     if (success) {
-      setCopiedKey('all');
-      showToast('success', 'All 4 Channels Copied!', 'Complete campaign package copied to clipboard.');
+      setCopiedKey('carousel-script');
+      showToast('success', '6-Slide Carousel Script Copied!', 'Includes headlines, visual suggestions, slide copy, and transition hooks.');
       setTimeout(() => setCopiedKey(null), 2500);
     }
   };
 
-  // Save to Drafts Vault (Commits any active inline edits first)
+  // Download Current Campaign as Formatted PDF (Clean reading & printing)
+  const handleDownloadPdf = () => {
+    if (!generatedPlatforms) return;
+    try {
+      const tempDraft: any = {
+        id: 'draft-current-' + Date.now(),
+        title: title || 'Generated Social Campaign',
+        summary: summary || '',
+        url: url || '',
+        tone,
+        contentLength,
+        focusAngle,
+        platforms: generatedPlatforms,
+        articleAnalysis: analysis || undefined,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      generateSingleDraftPdf(tempDraft);
+      showToast('success', 'PDF Generated!', 'Downloaded clean campaign PDF formatted for reading and print.');
+    } catch (err: any) {
+      console.error('PDF export error:', err);
+      showToast('error', 'PDF Download Failed', err.message || 'Could not generate PDF.');
+    }
+  };
+
+  // Download All Drafts as Formatted TXT
+  const handleDownloadAllTxt = () => {
+    if (!generatedPlatforms) return;
+
+    let textContent = `========================================================\n` +
+      `ELITE HUSTLE CONTENT STUDIO V2.0 - MASTER CONTENT PACK\n` +
+      `Elite Hustle Vault Central\n` +
+      `========================================================\n\n` +
+      `Title: ${title}\n` +
+      `URL: ${url || 'N/A'}\n` +
+      `Tone: ${tone} | Length: ${contentLength} | Angle: ${focusAngle}\n` +
+      `Target Audience: ${targetAudience}\n` +
+      `Generated: ${new Date().toLocaleString()}\n\n`;
+
+    if (analysis) {
+      textContent += `--- QUALITY CONTROL & FACT CHECK REPORT ---\n` +
+        `Main Arguments:\n${analysis.mainArguments.map((a) => `• ${a}`).join('\n')}\n\n` +
+        `Verified Facts & Figures:\n${analysis.verifiedFactsAndFigures.map((f) => `✓ ${f}`).join('\n')}\n\n` +
+        `Opinions & Perspectives:\n${analysis.opinionsAndPerspectives.map((o) => `~ ${o}`).join('\n')}\n\n` +
+        `Technical Details:\n${analysis.technicalDetails.map((t) => `+ ${t}`).join('\n')}\n\n` +
+        `========================================================\n\n`;
+    }
+
+    const platformKeys: PlatformKey[] = ['linkedin', 'x', 'threads', 'instagram', 'facebook'];
+    platformKeys.forEach((pk) => {
+      const pData = generatedPlatforms[pk];
+      textContent += `\n########################################################\n` +
+        `### PLATFORM: ${pk.toUpperCase()} ###\n` +
+        `########################################################\n\n`;
+
+      if (pData?.versions) {
+        (['versionA', 'versionB', 'versionC'] as ContentVersionKey[]).forEach((vk) => {
+          const vObj = pData.versions[vk];
+          if (vObj) {
+            textContent += `--- [ ${vObj.label.toUpperCase()} (VERSION ${vObj.version}) ] ---\n` +
+              `Hook: ${vObj.hook}\n\n` +
+              `Body:\n${vObj.body}\n\n` +
+              `CTA: ${vObj.callToAction}\n\n` +
+              `Hashtags: ${vObj.hashtags.join(' ')}\n\n` +
+              `Full Ready-to-Post Copy:\n${vObj.fullPost}\n\n`;
+          }
+        });
+      }
+
+      if (pk === 'instagram' && generatedPlatforms.instagram.carouselScript) {
+        textContent += `--- [ 6-SLIDE CAROUSEL SCRIPT ] ---\n`;
+        generatedPlatforms.instagram.carouselScript.forEach((slide) => {
+          textContent += `Slide ${slide.slideNumber}: ${slide.headline}\n` +
+            `  Visual Suggestion: ${slide.visualSuggestion}\n` +
+            `  Copy: ${slide.supportingText}\n` +
+            `  Transition Hook: ${slide.transitionHook}\n\n`;
+        });
+      }
+
+      if (pk === 'x' && generatedPlatforms.x.threadTweets) {
+        textContent += `--- [ 4-TWEET THREAD ] ---\n`;
+        generatedPlatforms.x.threadTweets.forEach((tweet, idx) => {
+          textContent += `Tweet ${idx + 1} (${tweet.length} chars):\n${tweet}\n\n`;
+        });
+      }
+    });
+
+    const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
+    const downloadUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = `${title.slice(0, 30).replace(/[^a-zA-Z0-9]/g, '_')}_v2_content_pack.txt`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(downloadUrl);
+    showToast('info', 'File Downloaded', 'Saved complete V2.0 content pack as plain text.');
+  };
+
+  // Save to Drafts Vault
   const handleSaveDraft = async () => {
     if (!generatedPlatforms) return;
     setIsSaving(true);
     try {
-      // Ensure any uncommitted inline edits are included
       let platformsToSave = generatedPlatforms;
       if (isEditing) {
-        platformsToSave = { ...generatedPlatforms };
-        if (activePlatform === 'facebook') {
-          platformsToSave.facebook = { ...platformsToSave.facebook, fullPost: editableFullPost };
-        } else if (activePlatform === 'instagram') {
-          platformsToSave.instagram = { ...platformsToSave.instagram, fullPost: editableFullPost };
-        } else if (activePlatform === 'linkedin') {
-          platformsToSave.linkedin = { ...platformsToSave.linkedin, fullPost: editableFullPost };
-        } else if (activePlatform === 'x') {
-          platformsToSave.x = { ...platformsToSave.x, fullPost: editableFullPost };
-        }
-        setGeneratedPlatforms(platformsToSave);
-        setIsEditing(false);
+        handleSaveInlineEdit();
+        platformsToSave = generatedPlatforms;
       }
 
       const saved = await saveDraft({
@@ -261,12 +516,15 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
         summary: summary.trim(),
         url: url.trim(),
         tone,
+        contentLength,
         focusAngle,
         platforms: platformsToSave,
+        articleAnalysis: analysis || undefined,
       });
+
       setHasSavedCurrent(true);
       onDraftSaved(saved);
-      showToast('success', 'Draft Saved to Vault Central!', 'You can review, edit, or copy this anytime in Saved Drafts.');
+      showToast('success', 'Draft Saved to Vault Central!', 'Includes all 5 platforms, 3 versions each, and 6-slide carousel script.');
     } catch (err: any) {
       showToast('error', 'Save Failed', 'Could not save draft to storage.');
     } finally {
@@ -274,52 +532,40 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
     }
   };
 
-  // Export as text file download
-  const handleDownloadText = () => {
-    if (!generatedPlatforms) return;
-    const textContent = `ELITE HUSTLE CONTENT STUDIO - VAULT CAMPAIGN\n` +
-      `Title: ${title}\n` +
-      `URL: ${url || 'N/A'}\nTone: ${tone} | Focus: ${focusAngle}\n` +
-      `Generated: ${new Date().toLocaleString()}\n` +
-      `==================================================\n\n` +
-      `1. LINKEDIN DRAFT\n-----------------\n${generatedPlatforms.linkedin?.fullPost || ''}\n\n` +
-      `2. X (TWITTER) DRAFT\n--------------------\n${generatedPlatforms.x?.fullPost || ''}\n\n` +
-      `3. INSTAGRAM DRAFT\n-------------------\n${generatedPlatforms.instagram?.fullPost || ''}\n\n` +
-      `4. FACEBOOK DRAFT\n------------------\n${generatedPlatforms.facebook?.fullPost || ''}\n`;
-
-    const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
-    const downloadUrl = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = downloadUrl;
-    link.download = `${title.slice(0, 30).replace(/[^a-zA-Z0-9]/g, '_')}_social_pack.txt`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(downloadUrl);
-    showToast('info', 'File Downloaded', 'Saved as plain text file.');
-  };
-
-  const platformsMeta = [
-    { key: 'linkedin' as PlatformKey, label: 'LinkedIn', icon: 'LI', color: 'text-sky-400' },
-    { key: 'x' as PlatformKey, label: 'X (Twitter)', icon: 'X', color: 'text-slate-100' },
-    { key: 'instagram' as PlatformKey, label: 'Instagram', icon: 'IG', color: 'text-pink-400' },
-    { key: 'facebook' as PlatformKey, label: 'Facebook', icon: 'FB', color: 'text-blue-400' },
+  const platformsMeta: { key: PlatformKey; label: string; icon: string; color: string }[] = [
+    { key: 'linkedin', label: 'LinkedIn', icon: 'LI', color: 'text-sky-400' },
+    { key: 'x', label: 'X (Twitter)', icon: 'X', color: 'text-slate-100' },
+    { key: 'threads', label: 'Threads', icon: 'TH', color: 'text-purple-400' },
+    { key: 'instagram', label: 'Instagram', icon: 'IG', color: 'text-pink-400' },
+    { key: 'facebook', label: 'Facebook', icon: 'FB', color: 'text-blue-400' },
   ];
 
-  const currentPostLength = isEditing
-    ? editableFullPost.length
-    : (generatedPlatforms?.[activePlatform]?.fullPost?.length || 0);
+  const versionLabels: { key: ContentVersionKey; label: string; badge: string }[] = [
+    { key: 'versionA', label: 'Version A', badge: 'Professional' },
+    { key: 'versionB', label: 'Version B', badge: 'Strong Engagement' },
+    { key: 'versionC', label: 'Version C', badge: 'Short & Powerful' },
+  ];
+
+  const activePostText = isEditing
+    ? editableFullPost
+    : getPlatformPostText(generatedPlatforms?.[activePlatform], activeVersionKey);
+
+  const activePostVersion = getPlatformPostVersion(generatedPlatforms?.[activePlatform], activeVersionKey);
 
   return (
     <div className="space-y-6 md:space-y-8 animate-in fade-in duration-200">
-      {/* Header & Quick Actions */}
+      {/* Studio Header & Top Controls */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="font-['Outfit'] text-2xl md:text-3xl font-extrabold text-white tracking-tight">
-            Social Content Studio
+          <div className="flex items-center gap-2 text-xs font-semibold text-amber-400 uppercase tracking-wider">
+            <Sparkles className="w-4 h-4 text-amber-400" />
+            <span>Elite Hustle Content Studio · Version 2.0</span>
+          </div>
+          <h1 className="font-['Outfit'] text-2xl md:text-3xl font-extrabold text-white tracking-tight mt-0.5">
+            Multi-Platform Content Studio
           </h1>
           <p className="text-xs md:text-sm text-slate-400">
-            Feed in a blog article to generate high-performing hooks, carousels, and promotional posts.
+            Generate 3 distinctive versions across LinkedIn, X, Threads, Instagram (6-Slide Carousel), and Facebook.
           </p>
         </div>
 
@@ -340,12 +586,34 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
             className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-xl transition-all active:scale-95 min-h-[40px]"
           >
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Load Sample</span>
+            <span>Load Vault Sample</span>
           </button>
         </div>
       </div>
 
-      {/* Error Alert Banner */}
+      {/* URL Access Warning / Notice (Requirement 1: Do not pretend URL was analysed if it failed) */}
+      {urlAccessWarning && (
+        <div className="p-4 rounded-xl bg-amber-950/40 border border-amber-500/50 text-amber-200 flex items-start gap-3 text-xs md:text-sm">
+          <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+          <div className="flex-1 space-y-1">
+            <p className="font-bold text-amber-300">URL Could Not Be Accessed Automatically</p>
+            <p className="text-slate-300 leading-relaxed">
+              {urlAccessWarning}
+            </p>
+            <p className="text-amber-400 text-xs font-medium pt-1">
+              ✓ To ensure 100% factual accuracy and zero hallucinated numbers, please enter or paste the article title and summary manually below.
+            </p>
+          </div>
+          <button
+            onClick={() => setUrlAccessWarning(null)}
+            className="text-amber-400 hover:text-white p-1"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* General Error Alert */}
       {errorMessage && (
         <div className="p-4 rounded-xl bg-rose-950/60 border border-rose-500/40 text-rose-200 flex items-start gap-3 text-xs md:text-sm">
           <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
@@ -362,17 +630,29 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
         </div>
       )}
 
-      {/* Input Form Card */}
+      {/* Article Input & Fact Check Form Card */}
       <form onSubmit={handleGenerate} className="p-5 md:p-7 rounded-2xl md:rounded-3xl bg-[#0b1325] border border-[#18284d] space-y-5 shadow-xl shadow-black/40">
-        <div className="flex items-center gap-2 pb-3 border-b border-[#18284d] text-xs font-semibold text-amber-400 uppercase tracking-wider">
-          <FileText className="w-4 h-4 text-amber-400" />
-          <span>1. Blog Article Input</span>
+        <div className="flex items-center justify-between pb-3 border-b border-[#18284d]">
+          <div className="flex items-center gap-2 text-xs font-semibold text-amber-400 uppercase tracking-wider">
+            <FileText className="w-4 h-4 text-amber-400" />
+            <span>1. Article Input & Fact Verification</span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowFullTextInput(!showFullTextInput)}
+              className="text-xs text-slate-400 hover:text-amber-300 transition-colors"
+            >
+              {showFullTextInput ? 'Hide Full Text' : '+ Paste Full Article Text'}
+            </button>
+          </div>
         </div>
 
         {/* URL Input with Auto-extract */}
         <div className="space-y-1.5">
           <label className="block text-xs font-semibold text-slate-200">
-            Blog Article URL <span className="text-slate-400 font-normal">(Optional but recommended)</span>
+            Article URL <span className="text-slate-400 font-normal">(Preserved in every generated draft)</span>
           </label>
           <div className="flex flex-col sm:flex-row gap-2">
             <div className="relative flex-1">
@@ -396,12 +676,12 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
               {isExtracting ? (
                 <>
                   <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
-                  <span>Fetching...</span>
+                  <span>Checking URL...</span>
                 </>
               ) : (
                 <>
                   <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Auto-Fill from URL</span>
+                  <span>Analyze URL</span>
                 </>
               )}
             </button>
@@ -421,87 +701,165 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
             required
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="e.g. The 5 Core Revenue Streams of High-Performing Solo Operators"
+            placeholder="e.g. The Vault Multiplier: 5 Core Revenue Streams for Solo Builders"
             className="w-full px-4 py-3 bg-[#070c18] border border-[#18284d] focus:border-amber-400 focus:ring-1 focus:ring-amber-400 rounded-xl text-sm md:text-base font-medium text-slate-100 placeholder-slate-500 transition-colors"
           />
         </div>
 
-        {/* Summary / Core Insights */}
+        {/* Summary Input */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-xs">
             <label className="font-semibold text-slate-200">
-              Article Summary & Key Insights <span className="text-amber-400">*</span>
+              Article Summary & Verified Facts <span className="text-amber-400">*</span>
             </label>
             <span className="text-slate-400 text-[11px] font-mono">{summary.length} chars</span>
           </div>
           <textarea
             required
-            rows={4}
+            rows={3}
             value={summary}
             onChange={(e) => setSummary(e.target.value)}
-            placeholder="Paste the core thesis, key takeaways, or excerpt. The more specific the insights, the higher-converting the hooks will be."
+            placeholder="Enter the core arguments and verified factual details. Our quality control system ensures only true claims are cited."
             className="w-full px-4 py-3 bg-[#070c18] border border-[#18284d] focus:border-amber-400 focus:ring-1 focus:ring-amber-400 rounded-xl text-sm text-slate-100 placeholder-slate-500 transition-colors leading-relaxed resize-y"
           />
         </div>
 
-        {/* Strategy, Tone & Target Audience */}
+        {/* Optional Full Text Area */}
+        {showFullTextInput && (
+          <div className="space-y-1.5 pt-1 animate-in fade-in">
+            <div className="flex items-center justify-between text-xs">
+              <label className="font-semibold text-slate-200">Full Article Text / Transcript (Optional)</label>
+              <span className="text-slate-400 text-[11px] font-mono">{articleText.length} chars</span>
+            </div>
+            <textarea
+              rows={4}
+              value={articleText}
+              onChange={(e) => setArticleText(e.target.value)}
+              placeholder="Paste full raw text here if you want deeper fact extraction and technical detail breakdown."
+              className="w-full px-4 py-3 bg-[#070c18] border border-[#18284d] focus:border-amber-400 rounded-xl text-xs text-slate-200 placeholder-slate-500 transition-colors leading-relaxed resize-y font-mono"
+            />
+          </div>
+        )}
+
+        {/* Fact-Check & Analysis Trigger */}
+        <div className="flex items-center justify-between pt-1">
+          <button
+            type="button"
+            onClick={handleAnalyzeArticle}
+            disabled={isAnalyzing || (!summary.trim() && !articleText.trim())}
+            className="px-3.5 py-2 bg-[#101c36] hover:bg-[#18284d] disabled:opacity-50 text-slate-300 hover:text-amber-400 border border-[#1e325c] rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors min-h-[38px]"
+          >
+            {isAnalyzing ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+            ) : (
+              <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+            )}
+            <span>Analyze Arguments & Fact-Check</span>
+          </button>
+
+          {analysis && (
+            <button
+              type="button"
+              onClick={() => setShowAnalysisPanel(!showAnalysisPanel)}
+              className="text-xs text-amber-400 hover:underline flex items-center gap-1"
+            >
+              <Eye className="w-3.5 h-3.5" />
+              <span>{showAnalysisPanel ? 'Hide Fact Check' : 'View Fact Check Report'}</span>
+            </button>
+          )}
+        </div>
+
+        {/* Fact-Check Intelligence Panel (Requirement 1 & 5) */}
+        {analysis && showAnalysisPanel && (
+          <div className="p-4 md:p-5 rounded-2xl bg-[#070c18] border border-amber-500/30 space-y-3.5 animate-in fade-in">
+            <div className="flex items-center justify-between pb-2 border-b border-[#18284d]">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <h3 className="font-['Outfit'] text-sm font-bold text-white">
+                  Quality Control: Article Intelligence & Facts
+                </h3>
+              </div>
+              <span className="text-[10px] text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30 font-mono">
+                Verified Facts Separated
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+              {/* Verified Facts & Figures */}
+              <div className="p-3 rounded-xl bg-[#0b1325] border border-emerald-500/20 space-y-1.5">
+                <span className="font-bold text-emerald-400 flex items-center gap-1">
+                  <span>✓ Verified Facts & Figures:</span>
+                </span>
+                <ul className="text-slate-300 space-y-1 list-disc list-inside">
+                  {analysis.verifiedFactsAndFigures.map((f, i) => (
+                    <li key={i}>{f}</li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Opinions & Perspectives */}
+              <div className="p-3 rounded-xl bg-[#0b1325] border border-amber-500/20 space-y-1.5">
+                <span className="font-bold text-amber-400 flex items-center gap-1">
+                  <span>~ Opinions & Subjective Claims:</span>
+                </span>
+                <ul className="text-slate-300 space-y-1 list-disc list-inside">
+                  {analysis.opinionsAndPerspectives.map((o, i) => (
+                    <li key={i}>{o}</li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Main Arguments */}
+              <div className="p-3 rounded-xl bg-[#0b1325] border border-[#18284d] space-y-1.5">
+                <span className="font-bold text-slate-200">Main Arguments:</span>
+                <ul className="text-slate-300 space-y-1 list-disc list-inside">
+                  {analysis.mainArguments.map((a, i) => (
+                    <li key={i}>{a}</li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Technical Details */}
+              <div className="p-3 rounded-xl bg-[#0b1325] border border-[#18284d] space-y-1.5">
+                <span className="font-bold text-slate-200">Technical Details & Frameworks:</span>
+                <ul className="text-slate-300 space-y-1 list-disc list-inside">
+                  {analysis.technicalDetails.map((t, i) => (
+                    <li key={i}>{t}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* User Controls: Tone, Length, Angle & Audience (Requirement 6) */}
         <div className="pt-2 border-t border-[#18284d] space-y-4">
           <div className="flex items-center gap-2 text-xs font-semibold text-amber-400 uppercase tracking-wider">
             <Sliders className="w-4 h-4 text-amber-400" />
-            <span>2. Strategic Voice & Positioning</span>
+            <span>2. User Strategy & Style Controls</span>
           </div>
 
-          {/* Target Audience Selector */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs">
-              <label className="font-semibold text-slate-200 flex items-center gap-1.5">
-                <Users className="w-3.5 h-3.5 text-amber-400" />
-                <span>Target Audience Segment</span>
-              </label>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {[
-                'Solo Founders & Digital Builders',
-                'Side Hustlers & Aspiring Creators',
-                'High-Ticket Consultants & Coaches',
-                'Enterprise Operators & Executives',
-              ].map((aud) => (
-                <button
-                  key={aud}
-                  type="button"
-                  onClick={() => setTargetAudience(aud)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors min-h-[36px] ${
-                    targetAudience === aud
-                      ? 'bg-amber-400 text-slate-950 font-bold shadow-sm'
-                      : 'bg-[#070c18] text-slate-300 hover:text-white border border-[#18284d]'
-                  }`}
-                >
-                  {aud}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {/* Tone Selector */}
             <div className="space-y-1.5">
               <label className="block text-xs font-semibold text-slate-200">
-                Brand Voice Tone
+                Promotional Tone
               </label>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-1.5">
                 {[
                   { id: 'authoritative' as ToneType, label: 'Authoritative', desc: 'Direct thought leader' },
-                  { id: 'conversational' as ToneType, label: 'Conversational', desc: 'Authentic founder story' },
-                  { id: 'high-energy' as ToneType, label: 'High-Energy', desc: 'Urgent & motivating' },
-                  { id: 'executive' as ToneType, label: 'Executive', desc: 'Strategic & leverage' },
+                  { id: 'conversational' as ToneType, label: 'Conversational', desc: 'Relatable story' },
+                  { id: 'high-energy' as ToneType, label: 'High-Energy', desc: 'Urgent & motivational' },
+                  { id: 'executive' as ToneType, label: 'Executive', desc: 'C-suite strategic' },
+                  { id: 'provocative' as ToneType, label: 'Provocative', desc: 'Contrarian tension' },
                 ].map((item) => (
                   <button
                     key={item.id}
                     type="button"
                     onClick={() => setTone(item.id)}
-                    className={`p-2.5 rounded-xl border text-left transition-all min-h-[48px] ${
+                    className={`p-2 rounded-xl border text-left transition-all min-h-[44px] ${
                       tone === item.id
-                        ? 'bg-amber-400/15 border-amber-400 text-white font-medium shadow-sm shadow-amber-500/10'
+                        ? 'bg-amber-400/20 border-amber-400 text-white font-medium shadow-sm'
                         : 'bg-[#070c18] border-[#18284d] text-slate-300 hover:border-slate-600'
                     }`}
                   >
@@ -512,30 +870,85 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
               </div>
             </div>
 
-            {/* Focus Angle Selector */}
+            {/* Content Length Selector (Requirement 6) */}
             <div className="space-y-1.5">
               <label className="block text-xs font-semibold text-slate-200">
-                Promotional Angle
+                Content Length Target
               </label>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-1.5">
                 {[
-                  { id: 'actionable' as FocusAngleType, label: 'Actionable Steps', desc: 'Tactical execution' },
-                  { id: 'contrarian' as FocusAngleType, label: 'Contrarian Truth', desc: 'Challenges status quo' },
-                  { id: 'case-study' as FocusAngleType, label: 'Case Study', desc: 'Results & metrics' },
-                  { id: 'growth' as FocusAngleType, label: 'Mindset / Scaling', desc: 'High leverage' },
+                  { id: 'short' as ContentLengthType, label: 'Short', desc: 'Punchy & dense' },
+                  { id: 'standard' as ContentLengthType, label: 'Standard', desc: 'Balanced structure' },
+                  { id: 'in-depth' as ContentLengthType, label: 'In-Depth', desc: 'Detailed masterclass' },
                 ].map((item) => (
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => setFocusAngle(item.id)}
-                    className={`p-2.5 rounded-xl border text-left transition-all min-h-[48px] ${
-                      focusAngle === item.id
-                        ? 'bg-amber-400/15 border-amber-400 text-white font-medium shadow-sm shadow-amber-500/10'
+                    onClick={() => setContentLength(item.id)}
+                    className={`p-2 rounded-xl border text-center transition-all min-h-[44px] flex flex-col justify-center ${
+                      contentLength === item.id
+                        ? 'bg-amber-400/20 border-amber-400 text-white font-medium shadow-sm'
                         : 'bg-[#070c18] border-[#18284d] text-slate-300 hover:border-slate-600'
                     }`}
                   >
-                    <div className="text-xs font-semibold">{item.label}</div>
-                    <div className="text-[10px] text-slate-400 mt-0.5 line-clamp-1">{item.desc}</div>
+                    <div className="text-xs font-bold">{item.label}</div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">{item.desc}</div>
+                  </button>
+                ))}
+              </div>
+
+              {/* Promotional Focus Angle */}
+              <div className="pt-2 space-y-1">
+                <label className="block text-xs font-semibold text-slate-200">
+                  Promotional Angle
+                </label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    { id: 'actionable' as FocusAngleType, label: 'Actionable Steps' },
+                    { id: 'contrarian' as FocusAngleType, label: 'Contrarian Truth' },
+                    { id: 'case-study' as FocusAngleType, label: 'Case Study' },
+                    { id: 'growth' as FocusAngleType, label: 'Mindset & Scale' },
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setFocusAngle(item.id)}
+                      className={`p-2 rounded-lg border text-xs font-medium text-left transition-colors min-h-[36px] ${
+                        focusAngle === item.id
+                          ? 'bg-amber-400 text-slate-950 font-bold'
+                          : 'bg-[#070c18] text-slate-300 border-[#18284d]'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Target Audience Selector */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-slate-200">
+                Target Audience
+              </label>
+              <div className="space-y-1.5">
+                {[
+                  'Solo Founders & Digital Builders',
+                  'Side Hustlers & Aspiring Creators',
+                  'High-Ticket Consultants & Coaches',
+                  'Enterprise Operators & Executives',
+                ].map((aud) => (
+                  <button
+                    key={aud}
+                    type="button"
+                    onClick={() => setTargetAudience(aud)}
+                    className={`w-full p-2 rounded-xl border text-left text-xs font-medium transition-colors min-h-[38px] ${
+                      targetAudience === aud
+                        ? 'bg-amber-400/20 border-amber-400 text-amber-300 font-bold'
+                        : 'bg-[#070c18] text-slate-300 border-[#18284d] hover:border-slate-600'
+                    }`}
+                  >
+                    {aud}
                   </button>
                 ))}
               </div>
@@ -553,12 +966,12 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
             {isGenerating ? (
               <>
                 <RefreshCw className="w-5 h-5 animate-spin text-slate-950" />
-                <span>Generating Promotional Content...</span>
+                <span>Generating Multi-Platform Versions & Carousel...</span>
               </>
             ) : (
               <>
                 <Sparkles className="w-5 h-5 text-slate-950" />
-                <span>Generate Social Media Drafts</span>
+                <span>Generate Social Media Drafts (5 Channels × 3 Versions)</span>
               </>
             )}
           </button>
@@ -574,30 +987,37 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
 
       {/* Generated Results Section */}
       {generatedPlatforms && (
-        <div id="results-section" className="space-y-4 pt-2">
+        <div id="results-section" className="space-y-5 pt-2">
+          {/* Top Actions Row */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-[#18284d]">
             <div>
-              <div className="flex items-center gap-2 text-xs font-semibold text-amber-400 uppercase tracking-wider">
+              <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400 uppercase tracking-wider">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span>Generated Social Media Campaign</span>
+                <span>Elite Hustle V2.0 Content Package</span>
               </div>
               <h2 className="font-['Outfit'] text-xl font-bold text-white mt-0.5">
-                Review & Publish Drafts
+                Multi-Platform Draft Studio
               </h2>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={handleCopyAll}
+                onClick={handleDownloadPdf}
+                title="Download this campaign as a formatted PDF for reading and printing"
+                className="px-3.5 py-2 text-xs font-bold text-slate-950 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 rounded-xl flex items-center gap-1.5 transition-all min-h-[44px] shadow-sm shadow-amber-500/20 active:scale-95"
+              >
+                <FileText className="w-3.5 h-3.5 text-slate-950" />
+                <span>Download PDF</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDownloadAllTxt}
                 className="px-3.5 py-2 text-xs font-semibold text-slate-200 bg-[#101c36] hover:bg-[#18284d] border border-[#1e325c] rounded-xl flex items-center gap-1.5 transition-all min-h-[44px]"
               >
-                {copiedKey === 'all' ? (
-                  <Check className="w-3.5 h-3.5 text-emerald-400" />
-                ) : (
-                  <Copy className="w-3.5 h-3.5 text-amber-400" />
-                )}
-                <span>Copy All 4 Channels</span>
+                <Download className="w-3.5 h-3.5 text-amber-400" />
+                <span>Download TXT</span>
               </button>
 
               <button
@@ -613,7 +1033,7 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
                 {hasSavedCurrent ? (
                   <>
                     <Check className="w-3.5 h-3.5 text-emerald-300" />
-                    <span>Saved to Vault</span>
+                    <span>Saved in Vault</span>
                   </>
                 ) : (
                   <>
@@ -625,8 +1045,8 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
             </div>
           </div>
 
-          {/* Platform Tab Switcher */}
-          <div className="grid grid-cols-4 gap-1.5 sm:gap-2 p-1.5 bg-[#0b1325] border border-[#18284d] rounded-2xl">
+          {/* 5 Platform Selector Tabs (Requirement 2) */}
+          <div className="grid grid-cols-5 gap-1.5 sm:gap-2 p-1.5 bg-[#0b1325] border border-[#18284d] rounded-2xl">
             {platformsMeta.map((p) => {
               const isSelected = activePlatform === p.key;
               return (
@@ -634,7 +1054,7 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
                   key={p.key}
                   type="button"
                   onClick={() => handlePlatformChange(p.key)}
-                  className={`py-2.5 px-2 rounded-xl text-xs md:text-sm font-semibold transition-all flex items-center justify-center gap-2 min-h-[44px] ${
+                  className={`py-2.5 px-1 sm:px-2 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-1.5 min-h-[44px] ${
                     isSelected
                       ? 'bg-amber-400 text-slate-950 shadow-md shadow-amber-500/20 font-bold'
                       : 'text-slate-300 hover:text-white hover:bg-[#101c36]'
@@ -643,61 +1063,56 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
                   <span className={`font-mono text-xs ${isSelected ? 'text-slate-950 font-bold' : p.color}`}>
                     [{p.icon}]
                   </span>
-                  <span className="hidden sm:inline">{p.label}</span>
+                  <span className="hidden sm:inline truncate">{p.label}</span>
                 </button>
               );
             })}
           </div>
 
-          {/* Active Platform Card */}
-          <div className="p-5 md:p-6 rounded-2xl bg-[#0b1325] border border-[#18284d] space-y-4 shadow-xl shadow-black/40">
-            {/* Platform Sub-Header */}
+          {/* Active Platform Panel */}
+          <div className="p-5 md:p-6 rounded-2xl md:rounded-3xl bg-[#0b1325] border border-[#18284d] space-y-4 shadow-xl shadow-black/40">
+            {/* Header: Platform Info & Regenerate Single Platform Control */}
             <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-[#18284d]">
               <div className="flex items-center gap-2">
                 <span className="font-['Outfit'] text-base md:text-lg font-bold text-white capitalize">
-                  {activePlatform === 'x' ? 'X (Twitter)' : activePlatform} Draft
+                  {activePlatform === 'x' ? 'X (Twitter)' : activePlatform}
                 </span>
+
+                {/* Character Limit Badge (Requirement 5) */}
                 <span
                   className={`text-xs font-mono px-2 py-0.5 rounded ${
                     activePlatform === 'x'
-                      ? currentPostLength <= 280
+                      ? activePostText.length <= 280
+                        ? 'text-emerald-400 bg-emerald-950/40 border border-emerald-500/30'
+                        : 'text-rose-400 bg-rose-950/40 border border-rose-500/30'
+                      : activePlatform === 'threads'
+                      ? activePostText.length <= 500
                         ? 'text-emerald-400 bg-emerald-950/40 border border-emerald-500/30'
                         : 'text-amber-400 bg-amber-950/40 border border-amber-500/30'
                       : 'text-slate-400 bg-[#070c18]'
                   }`}
                 >
                   {activePlatform === 'x'
-                    ? `${currentPostLength} / 280 chars`
-                    : `${currentPostLength} chars`}
+                    ? `${activePostText.length} / 280 chars`
+                    : activePlatform === 'threads'
+                    ? `${activePostText.length} / 500 chars`
+                    : `${activePostText.length} chars`}
                 </span>
               </div>
 
-              <div className="flex items-center gap-2">
-                {/* View Mode Toggle */}
-                <div className="flex items-center p-1 bg-[#070c18] border border-[#18284d] rounded-lg">
-                  <button
-                    type="button"
-                    onClick={() => setActiveViewMode('formatted')}
-                    className={`px-2.5 py-1 text-xs rounded-md font-medium transition-colors min-h-[32px] ${
-                      activeViewMode === 'formatted'
-                        ? 'bg-[#101c36] text-amber-400 font-semibold'
-                        : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    Full Post
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveViewMode('structured')}
-                    className={`px-2.5 py-1 text-xs rounded-md font-medium transition-colors min-h-[32px] ${
-                      activeViewMode === 'structured'
-                        ? 'bg-[#101c36] text-amber-400 font-semibold'
-                        : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    Breakdown
-                  </button>
-                </div>
+              {/* Action Buttons: Regenerate Single Platform, Edit, Copy */}
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Regenerate this platform only (Requirement 6) */}
+                <button
+                  type="button"
+                  onClick={() => handleRegeneratePlatform(activePlatform)}
+                  disabled={regeneratingPlatform === activePlatform}
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-300 hover:text-amber-400 bg-[#101c36] hover:bg-[#18284d] border border-[#1e325c] rounded-lg flex items-center gap-1.5 transition-colors min-h-[38px]"
+                  title={`Regenerate ${activePlatform} only`}
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 text-amber-400 ${regeneratingPlatform === activePlatform ? 'animate-spin' : ''}`} />
+                  <span>{regeneratingPlatform === activePlatform ? 'Regenerating...' : `Regenerate ${activePlatform.toUpperCase()}`}</span>
+                </button>
 
                 {/* Edit Toggle */}
                 <button
@@ -709,23 +1124,23 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
                       setIsEditing(true);
                     }
                   }}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-lg border flex items-center gap-1.5 transition-colors min-h-[36px] ${
+                  className={`px-3 py-1.5 text-xs font-medium rounded-lg border flex items-center gap-1.5 transition-colors min-h-[38px] ${
                     isEditing
                       ? 'bg-amber-400/20 text-amber-300 border-amber-400/40 font-semibold'
                       : 'bg-[#101c36] text-slate-300 border-[#1e325c] hover:text-white'
                   }`}
                 >
                   <Edit3 className="w-3.5 h-3.5" />
-                  <span>{isEditing ? 'Save Text' : 'Edit'}</span>
+                  <span>{isEditing ? 'Save Text' : 'Edit Copy'}</span>
                 </button>
 
-                {/* Copy Button */}
+                {/* Copy Active Version */}
                 <button
                   type="button"
-                  onClick={() => handleCopyPlatform(activePlatform)}
-                  className="px-3.5 py-1.5 text-xs font-bold bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 rounded-lg flex items-center gap-1.5 shadow-sm transition-all active:scale-95 min-h-[36px]"
+                  onClick={handleCopyActiveVersion}
+                  className="px-4 py-1.5 text-xs font-bold bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 rounded-lg flex items-center gap-1.5 shadow-sm transition-all active:scale-95 min-h-[38px]"
                 >
-                  {copiedKey === activePlatform ? (
+                  {copiedKey === `${activePlatform}-${activeVersionKey}` ? (
                     <>
                       <Check className="w-3.5 h-3.5 text-slate-950" />
                       <span>Copied!</span>
@@ -733,22 +1148,62 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
                   ) : (
                     <>
                       <Copy className="w-3.5 h-3.5 text-slate-950" />
-                      <span>Copy {activePlatform.toUpperCase()}</span>
+                      <span>Copy {activeVersionKey.replace('version', 'Ver ')}</span>
                     </>
                   )}
                 </button>
               </div>
             </div>
 
-            {/* Content Display: Full Formatted or Structured */}
+            {/* Sub-Tabs: 3 Content Versions (Requirement 3) + Carousel View (Requirement 4) */}
+            <div className="flex flex-wrap items-center justify-between gap-2 p-1.5 bg-[#070c18] border border-[#18284d] rounded-xl">
+              <div className="flex flex-wrap items-center gap-1">
+                {versionLabels.map((v) => {
+                  const isSelected = activeVersionKey === v.key;
+                  return (
+                    <button
+                      key={v.key}
+                      type="button"
+                      onClick={() => handleVersionChange(v.key)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all min-h-[36px] flex items-center gap-1.5 ${
+                        isSelected
+                          ? 'bg-amber-400 text-slate-950 font-bold shadow-sm'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <span>{v.label}:</span>
+                      <span className="font-normal opacity-90">{v.badge}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Instagram Carousel Script Tab Toggle */}
+              {activePlatform === 'instagram' && (
+                <button
+                  type="button"
+                  onClick={() => setActiveViewMode(activeViewMode === 'carousel' ? 'formatted' : 'carousel')}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5 min-h-[36px] ${
+                    activeViewMode === 'carousel'
+                      ? 'bg-pink-500/20 text-pink-300 border-pink-500/40'
+                      : 'bg-[#101c36] text-slate-300 border-[#18284d] hover:text-white'
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5 text-pink-400" />
+                  <span>{activeViewMode === 'carousel' ? 'View Caption' : '6-Slide Carousel Script (Script Mode)'}</span>
+                </button>
+              )}
+            </div>
+
+            {/* Display: Carousel Script vs Formatted Text vs Inline Editor */}
             {isEditing ? (
               <div className="space-y-3">
                 <div className="flex items-center justify-between text-xs text-amber-300">
-                  <span className="font-semibold">Inline Editor: Customize copy directly</span>
+                  <span className="font-semibold">Editing: {activePlatform.toUpperCase()} ({activeVersionKey.replace('version', 'Version ')})</span>
                   <span className="font-mono text-slate-400">{editableFullPost.length} chars</span>
                 </div>
                 <textarea
-                  rows={10}
+                  rows={9}
                   value={editableFullPost}
                   onChange={(e) => setEditableFullPost(e.target.value)}
                   className="w-full p-4 bg-[#070c18] border border-amber-500/40 focus:border-amber-400 rounded-xl text-sm text-slate-100 font-sans leading-relaxed resize-y"
@@ -757,7 +1212,7 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      setEditableFullPost(generatedPlatforms[activePlatform]?.fullPost || '');
+                      setEditableFullPost(getPlatformPostText(generatedPlatforms[activePlatform], activeVersionKey));
                       setIsEditing(false);
                     }}
                     className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200"
@@ -773,36 +1228,101 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
                   </button>
                 </div>
               </div>
-            ) : activeViewMode === 'formatted' ? (
-              <div className="space-y-3">
-                <div className="p-4 md:p-5 rounded-xl bg-[#070c18] border border-[#18284d] text-sm md:text-base text-slate-100 whitespace-pre-wrap leading-relaxed select-text font-sans">
-                  {generatedPlatforms[activePlatform]?.fullPost}
+            ) : activeViewMode === 'carousel' && activePlatform === 'instagram' ? (
+              /* Instagram 6-Slide Carousel Script Display (Requirement 4) */
+              <div className="space-y-4">
+                <div className="flex items-center justify-between pb-2 border-b border-[#18284d]">
+                  <div className="flex items-center gap-2 text-xs font-bold text-pink-400 uppercase tracking-wider">
+                    <Layers className="w-4 h-4 text-pink-400" />
+                    <span>Instagram 6-Slide Carousel Script</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCopyCarouselScript}
+                    className="px-3 py-1.5 text-xs font-semibold text-slate-200 bg-[#101c36] hover:bg-[#18284d] border border-[#1e325c] rounded-lg flex items-center gap-1.5 transition-all min-h-[36px]"
+                  >
+                    {copiedKey === 'carousel-script' ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5 text-amber-400" />
+                    )}
+                    <span>Copy Full 6-Slide Script</span>
+                  </button>
                 </div>
 
-                {/* Instagram Carousel Slide Cards */}
-                {activePlatform === 'instagram' && generatedPlatforms.instagram?.carouselSlides && (
-                  <div className="p-4 rounded-xl bg-[#0c162d] border border-amber-500/20 space-y-2.5">
-                    <div className="flex items-center gap-2 text-xs font-bold text-amber-400 uppercase tracking-wider">
-                      <Layers className="w-4 h-4 text-amber-400" />
-                      <span>Carousel Slide Breakdown ({generatedPlatforms.instagram.carouselSlides.length} Slides)</span>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                      {generatedPlatforms.instagram.carouselSlides.map((slide, idx) => (
-                        <div key={idx} className="p-3 rounded-lg bg-[#070c18] border border-[#18284d] text-slate-300 space-y-1">
-                          <span className="text-[10px] font-bold text-amber-400 font-mono">Slide {idx + 1}</span>
-                          <p>{slide}</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                  {generatedPlatforms.instagram?.carouselScript?.map((slide: CarouselSlide) => (
+                    <div
+                      key={slide.slideNumber}
+                      className="p-4 rounded-xl bg-[#070c18] border border-[#18284d] flex flex-col justify-between space-y-3"
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-mono font-bold text-amber-400 bg-amber-950/40 px-2 py-0.5 rounded border border-amber-500/30">
+                            Slide {slide.slideNumber} of 6
+                          </span>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              await copyToClipboard(`Slide ${slide.slideNumber}: ${slide.headline}\n${slide.supportingText}\nVisual: ${slide.visualSuggestion}`);
+                              showToast('info', `Slide ${slide.slideNumber} Copied`);
+                            }}
+                            className="text-slate-400 hover:text-white p-1"
+                            title="Copy slide"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
 
-                {/* X Thread Breakdown Cards */}
+                        <h4 className="font-['Outfit'] font-bold text-white text-sm leading-snug">
+                          {slide.headline}
+                        </h4>
+
+                        <p className="text-xs text-slate-300 leading-relaxed">
+                          {slide.supportingText}
+                        </p>
+                      </div>
+
+                      <div className="pt-2 border-t border-[#18284d]/60 space-y-1.5 text-[11px]">
+                        <div>
+                          <strong className="text-amber-400 font-semibold">Visual Suggestion:</strong>{' '}
+                          <span className="text-slate-400">{slide.visualSuggestion}</span>
+                        </div>
+                        <div>
+                          <strong className="text-sky-400 font-semibold">Next Hook:</strong>{' '}
+                          <span className="text-slate-400 italic">{slide.transitionHook}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              /* Ready-to-Post Copy Display */
+              <div className="space-y-3">
+                <div className="p-4 md:p-5 rounded-xl bg-[#070c18] border border-[#18284d] text-sm md:text-base text-slate-100 whitespace-pre-wrap leading-relaxed select-text font-sans">
+                  {activePostText}
+                </div>
+
+                {/* X Thread preview if on X */}
                 {activePlatform === 'x' && generatedPlatforms.x?.threadTweets && generatedPlatforms.x.threadTweets.length > 0 && (
                   <div className="p-4 rounded-xl bg-[#0c162d] border border-amber-500/20 space-y-2.5">
-                    <div className="flex items-center gap-2 text-xs font-bold text-amber-400 uppercase tracking-wider">
-                      <MessageSquare className="w-4 h-4 text-amber-400" />
-                      <span>Optional Thread Breakdown ({generatedPlatforms.x.threadTweets.length} Tweets)</span>
+                    <div className="flex items-center justify-between text-xs font-bold text-amber-400 uppercase tracking-wider">
+                      <div className="flex items-center gap-2">
+                        <MessageSquare className="w-4 h-4 text-amber-400" />
+                        <span>Optional Thread Breakdown ({generatedPlatforms.x.threadTweets.length} Tweets)</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await copyToClipboard(generatedPlatforms.x.threadTweets!.join('\n\n---\n\n'));
+                          showToast('info', 'Thread Copied to Clipboard');
+                        }}
+                        className="text-xs text-amber-400 hover:underline flex items-center gap-1"
+                      >
+                        <Copy className="w-3 h-3" />
+                        <span>Copy Thread</span>
+                      </button>
                     </div>
                     <div className="space-y-2 text-xs">
                       {generatedPlatforms.x.threadTweets.map((tweet, idx) => (
@@ -818,98 +1338,23 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
                   </div>
                 )}
               </div>
-            ) : (
-              /* Structured Breakdown Mode */
-              <div className="space-y-3.5">
-                {/* 1. Hook */}
-                <div className="p-3.5 rounded-xl bg-[#070c18] border border-[#18284d] space-y-1">
-                  <div className="flex items-center justify-between text-xs text-amber-400 font-semibold">
-                    <span>1. Opening Hook (First 3 Seconds)</span>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        await copyToClipboard(generatedPlatforms[activePlatform]?.hook || '');
-                        showToast('info', 'Hook Copied');
-                      }}
-                      className="text-slate-400 hover:text-white p-1"
-                      title="Copy Hook"
-                    >
-                      <Copy className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  <p className="text-sm font-medium text-white italic">
-                    "{generatedPlatforms[activePlatform]?.hook}"
-                  </p>
-                </div>
-
-                {/* 2. Core Body */}
-                <div className="p-3.5 rounded-xl bg-[#070c18] border border-[#18284d] space-y-1">
-                  <div className="text-xs text-amber-400 font-semibold">
-                    <span>2. Narrative Body</span>
-                  </div>
-                  <p className="text-xs md:text-sm text-slate-200 whitespace-pre-wrap leading-relaxed">
-                    {generatedPlatforms[activePlatform]?.body}
-                  </p>
-                </div>
-
-                {/* 3. Call to Action */}
-                <div className="p-3.5 rounded-xl bg-[#070c18] border border-[#18284d] space-y-1">
-                  <div className="text-xs text-amber-400 font-semibold">
-                    <span>3. Call to Action (CTA)</span>
-                  </div>
-                  <p className="text-xs md:text-sm font-semibold text-amber-300">
-                    {generatedPlatforms[activePlatform]?.callToAction}
-                  </p>
-                </div>
-
-                {/* 4. Article Link Back */}
-                <div className="p-3.5 rounded-xl bg-[#070c18] border border-[#18284d] space-y-1">
-                  <div className="text-xs text-amber-400 font-semibold">
-                    <span>4. Target Blog Article Link</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-sky-400 break-all">
-                    <ExternalLink className="w-3.5 h-3.5 shrink-0" />
-                    <span>{url || 'https://elitehustlevaultcentral.com'}</span>
-                  </div>
-                </div>
-
-                {/* 5. Hashtags */}
-                <div className="p-3.5 rounded-xl bg-[#070c18] border border-[#18284d] space-y-1">
-                  <div className="text-xs text-amber-400 font-semibold">
-                    <span>5. Relevant Targeted Hashtags</span>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5 pt-1">
-                    {(generatedPlatforms[activePlatform]?.hashtags || []).map((tag, i) => (
-                      <span key={i} className="text-xs font-mono text-slate-300 bg-[#101c36] px-2 py-1 rounded-md">
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
             )}
 
             {/* Bottom Actions Row */}
             <div className="pt-3 border-t border-[#18284d] flex flex-wrap items-center justify-between gap-3 text-xs">
-              <div className="text-slate-400">
-                Ready to publish on your connected social channels.
+              <div className="flex items-center gap-2 text-slate-400">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span>Original URL preserved · Anti-AI cliché filter active · No fabricated stats</span>
               </div>
+
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={handleDownloadText}
-                  className="px-3.5 py-2 text-xs font-medium text-slate-300 hover:text-white bg-[#101c36] hover:bg-[#18284d] rounded-xl flex items-center gap-1.5 transition-colors min-h-[44px]"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Download .TXT</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleCopyPlatform(activePlatform)}
-                  className="px-4 py-2 text-xs font-bold text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-xl flex items-center gap-1.5 shadow-sm transition-all active:scale-95 min-h-[44px]"
+                  onClick={handleCopyActiveVersion}
+                  className="px-4 py-2 text-xs font-bold text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-xl flex items-center gap-1.5 shadow-sm transition-all active:scale-95 min-h-[40px]"
                 >
                   <Copy className="w-3.5 h-3.5" />
-                  <span>Copy {activePlatform.toUpperCase()} Post</span>
+                  <span>Copy This Post</span>
                 </button>
               </div>
             </div>

@@ -39,11 +39,17 @@ export const GuideModal: React.FC<GuideModalProps> = ({ isOpen, onClose }) => {
         <div className="space-y-2.5">
           <div className="flex items-center gap-2 text-xs font-bold text-amber-400 uppercase tracking-wider">
             <Server className="w-4 h-4 text-amber-400" />
-            <span>1. Zero-Exposure API Security Architecture</span>
+            <span>1. Zero-Exposure Security & V2.0 Engine</span>
           </div>
           <p className="text-xs md:text-sm text-slate-300 leading-relaxed bg-[#070c18] p-4 rounded-xl border border-[#18284d]">
-            In strict compliance with modern security standards, your <strong>GEMINI_API_KEY</strong> is never sent or exposed to client browser code. All generation requests route through our secure full-stack backend endpoint (<code className="text-amber-400 font-mono">/api/generate-content</code>), and drafts are safely persisted in server storage and synchronized with local cache.
+            In strict compliance with modern security standards, your <strong>GEMINI_API_KEY</strong> is never sent to the client browser. All generation requests route through our secure full-stack backend endpoint (<code className="text-amber-400 font-mono">/api/generate-content</code>), powering:
           </p>
+          <ul className="text-xs text-slate-300 space-y-1.5 list-disc list-inside bg-[#070c18] p-3 rounded-xl border border-[#18284d]">
+            <li><strong>Factual Integrity:</strong> Extracts verified facts vs. opinions; strictly rejects fabricating statistics.</li>
+            <li><strong>5 Channels &times; 3 Versions:</strong> LinkedIn, X, Threads, Instagram, and Facebook across Professional, Strong Engagement, and Short &amp; Powerful versions.</li>
+            <li><strong>6-Slide Carousel Engine:</strong> Ready-to-design slide copy with visual suggestions and retention hooks.</li>
+            <li><strong>Regeneration &amp; Export:</strong> Regenerate single platforms without losing edits, with one-click TXT bundle export.</li>
+          </ul>
         </div>
 
         {/* Section 2: How to Run Locally */}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Draft, PlatformKey, PlatformsData } from '../types';
+import { Draft, PlatformKey, ContentVersionKey, CarouselSlide, PlatformsData } from '../types';
 import {
   Search,
   Trash2,
@@ -13,10 +13,14 @@ import {
   Calendar,
   AlertTriangle,
   Download,
-  Share2,
   Filter,
+  Layers,
+  ShieldCheck,
+  FileText,
+  Printer,
 } from 'lucide-react';
-import { deleteDraft, saveDraft, copyToClipboard } from '../utils/api';
+import { deleteDraft, saveDraft, copyToClipboard, getPlatformPostText } from '../utils/api';
+import { generateConsolidatedPdf, generateSingleDraftPdf, openPrintableDocument } from '../utils/pdfGenerator';
 
 interface DraftsViewProps {
   drafts: Draft[];
@@ -41,7 +45,9 @@ export const DraftsView: React.FC<DraftsViewProps> = ({
   const [expandedDraftId, setExpandedDraftId] = useState<string | null>(selectedDraftId || null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
-  // Auto-expand if selectedDraftId changes
+  // Active version tab per expanded draft
+  const [expandedVersions, setExpandedVersions] = useState<Record<string, ContentVersionKey>>({});
+
   useEffect(() => {
     if (selectedDraftId) {
       setExpandedDraftId(selectedDraftId);
@@ -58,13 +64,14 @@ export const DraftsView: React.FC<DraftsViewProps> = ({
   const [editSummary, setEditSummary] = useState('');
   const [editUrl, setEditUrl] = useState('');
   const [editPlatformKey, setEditPlatformKey] = useState<PlatformKey>('linkedin');
+  const [editVersionKey, setEditVersionKey] = useState<ContentVersionKey>('versionA');
   const [editPlatforms, setEditPlatforms] = useState<PlatformsData | null>(null);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   // Copy handler
   const handleCopy = async (text: string, label: string, draftId: string) => {
     if (!text) {
-      showToast('error', `No ${label} content available to copy.`);
+      showToast('error', `No ${label} copy available to copy.`);
       return;
     }
     const success = await copyToClipboard(text);
@@ -84,7 +91,7 @@ export const DraftsView: React.FC<DraftsViewProps> = ({
     setEditSummary(draft.summary || '');
     setEditUrl(draft.url || '');
     setEditPlatformKey('linkedin');
-    // Deep clone platforms to preserve edits across platform tabs
+    setEditVersionKey('versionA');
     setEditPlatforms(JSON.parse(JSON.stringify(draft.platforms || {})));
   };
 
@@ -93,10 +100,28 @@ export const DraftsView: React.FC<DraftsViewProps> = ({
     if (!editPlatforms) return;
     setEditPlatforms((prev) => {
       if (!prev) return prev;
+      const targetPlatform = prev[editPlatformKey];
+      if (targetPlatform?.versions && targetPlatform.versions[editVersionKey]) {
+        return {
+          ...prev,
+          [editPlatformKey]: {
+            ...targetPlatform,
+            versions: {
+              ...targetPlatform.versions,
+              [editVersionKey]: {
+                ...targetPlatform.versions[editVersionKey],
+                fullPost: text,
+                characterCount: text.length,
+              },
+            },
+          },
+        };
+      }
+      // V1 fallback
       return {
         ...prev,
         [editPlatformKey]: {
-          ...prev[editPlatformKey],
+          ...targetPlatform,
           fullPost: text,
         },
       };
@@ -154,29 +179,100 @@ export const DraftsView: React.FC<DraftsViewProps> = ({
     }
   };
 
-  // Download single draft as .TXT package
+  // Download all drafts as consolidated PDF document
+  const handleDownloadAllPdf = () => {
+    if (drafts.length === 0) {
+      showToast('info', 'No Drafts Available', 'Create and save at least one draft before exporting.');
+      return;
+    }
+    try {
+      generateConsolidatedPdf(drafts);
+      showToast('success', 'Consolidated PDF Generated!', `Exported all ${drafts.length} campaigns formatted for reading and print.`);
+    } catch (err: any) {
+      console.error('PDF generation error:', err);
+      showToast('error', 'PDF Export Failed', err.message || 'Could not generate PDF document.');
+    }
+  };
+
+  // Download single draft as PDF
+  const handleDownloadSinglePdf = (draft: Draft) => {
+    try {
+      generateSingleDraftPdf(draft);
+      showToast('success', 'Campaign PDF Generated!', `Downloaded clean PDF dossier for "${draft.title.slice(0, 30)}...".`);
+    } catch (err: any) {
+      console.error('Single PDF generation error:', err);
+      showToast('error', 'PDF Export Failed', err.message || 'Could not generate PDF document.');
+    }
+  };
+
+  // Open browser-native print view formatted for clean reading and printing
+  const handleOpenPrintView = () => {
+    if (drafts.length === 0) {
+      showToast('info', 'No Drafts to Print');
+      return;
+    }
+    openPrintableDocument(drafts);
+    showToast('info', 'Opening Print Preview', 'Use the print dialog to print or save to PDF.');
+  };
+
+  // Download single draft as complete V2 .TXT package
   const handleExportDraft = (draft: Draft) => {
-    const textContent = `ELITE HUSTLE CONTENT STUDIO - VAULT CAMPAIGN\n` +
+    let textContent = `========================================================\n` +
+      `ELITE HUSTLE CONTENT STUDIO V2.0 - CAMPAIGN EXPORT\n` +
       `Title: ${draft.title}\n` +
       `URL: ${draft.url || 'N/A'}\n` +
-      `Tone: ${draft.tone} | Focus: ${draft.focusAngle}\n` +
+      `Tone: ${draft.tone} | Length: ${draft.contentLength || 'standard'} | Angle: ${draft.focusAngle}\n` +
       `Saved: ${new Date(draft.createdAt).toLocaleString()}\n` +
-      `==================================================\n\n` +
-      `1. LINKEDIN DRAFT\n-----------------\n${draft.platforms?.linkedin?.fullPost || 'N/A'}\n\n` +
-      `2. X (TWITTER) DRAFT\n--------------------\n${draft.platforms?.x?.fullPost || 'N/A'}\n\n` +
-      `3. INSTAGRAM DRAFT\n-------------------\n${draft.platforms?.instagram?.fullPost || 'N/A'}\n\n` +
-      `4. FACEBOOK DRAFT\n------------------\n${draft.platforms?.facebook?.fullPost || 'N/A'}\n`;
+      `========================================================\n\n`;
+
+    if (draft.articleAnalysis) {
+      textContent += `--- FACT CHECK & ANALYSIS ---\n` +
+        `Main Arguments:\n${draft.articleAnalysis.mainArguments.map((a) => `• ${a}`).join('\n')}\n\n` +
+        `Verified Facts:\n${draft.articleAnalysis.verifiedFactsAndFigures.map((f) => `✓ ${f}`).join('\n')}\n\n` +
+        `Opinions:\n${draft.articleAnalysis.opinionsAndPerspectives.map((o) => `~ ${o}`).join('\n')}\n\n` +
+        `========================================================\n\n`;
+    }
+
+    const platformKeys: PlatformKey[] = ['linkedin', 'x', 'threads', 'instagram', 'facebook'];
+    platformKeys.forEach((pk) => {
+      const pData = draft.platforms?.[pk];
+      textContent += `\n########################################################\n` +
+        `### PLATFORM: ${pk.toUpperCase()} ###\n` +
+        `########################################################\n\n`;
+
+      if (pData?.versions) {
+        (['versionA', 'versionB', 'versionC'] as ContentVersionKey[]).forEach((vk) => {
+          const vObj = pData.versions[vk];
+          if (vObj) {
+            textContent += `--- [ ${vObj.label.toUpperCase()} (VERSION ${vObj.version}) ] ---\n` +
+              `${vObj.fullPost}\n\n`;
+          }
+        });
+      } else if (pData?.fullPost) {
+        textContent += `${pData.fullPost}\n\n`;
+      }
+
+      if (pk === 'instagram' && draft.platforms?.instagram?.carouselScript) {
+        textContent += `--- [ 6-SLIDE CAROUSEL SCRIPT ] ---\n`;
+        draft.platforms.instagram.carouselScript.forEach((slide) => {
+          textContent += `Slide ${slide.slideNumber}: ${slide.headline}\n` +
+            `  Visual: ${slide.visualSuggestion}\n` +
+            `  Copy: ${slide.supportingText}\n` +
+            `  Hook: ${slide.transitionHook}\n\n`;
+        });
+      }
+    });
 
     const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
     const downloadUrl = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = downloadUrl;
-    link.download = `${draft.title.slice(0, 30).replace(/[^a-zA-Z0-9]/g, '_')}_campaign.txt`;
+    link.download = `${draft.title.slice(0, 30).replace(/[^a-zA-Z0-9]/g, '_')}_v2_campaign.txt`;
     document.body.appendChild(link);
     link.click();
     link.remove();
     URL.revokeObjectURL(downloadUrl);
-    showToast('info', 'Campaign Exported', 'Downloaded as text file.');
+    showToast('info', 'Campaign Exported', 'Downloaded complete V2 plain text package.');
   };
 
   // Filtered Drafts
@@ -186,14 +282,13 @@ export const DraftsView: React.FC<DraftsViewProps> = ({
       draft.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       draft.summary.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (draft.url && draft.url.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (draft.platforms &&
-        JSON.stringify(draft.platforms).toLowerCase().includes(searchQuery.toLowerCase()));
+      (draft.platforms && JSON.stringify(draft.platforms).toLowerCase().includes(searchQuery.toLowerCase()));
 
     const matchesTone = toneFilter === 'all' || draft.tone === toneFilter;
 
     const matchesPlatform =
       platformFilter === 'all' ||
-      Boolean(draft.platforms && draft.platforms[platformFilter]?.fullPost);
+      Boolean(draft.platforms && draft.platforms[platformFilter]);
 
     return matchesSearch && matchesTone && matchesPlatform;
   });
@@ -207,16 +302,40 @@ export const DraftsView: React.FC<DraftsViewProps> = ({
             Saved Drafts Vault
           </h1>
           <p className="text-xs md:text-sm text-slate-400">
-            Manage, edit, export, and copy all promotional assets for Elite Hustle Vault Central.
+            Manage, export, and copy 5-platform promotional assets for Elite Hustle Vault Central.
           </p>
         </div>
 
-        <button
-          onClick={onNewDraftClick}
-          className="self-start sm:self-auto px-4 py-2.5 text-xs font-bold text-slate-950 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 rounded-xl transition-all shadow-md shadow-amber-500/20 min-h-[44px] flex items-center gap-1.5 active:scale-95"
-        >
-          <span>+ Create New Draft</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {drafts.length > 0 && (
+            <>
+              <button
+                onClick={handleDownloadAllPdf}
+                title="Generate clean consolidated PDF document of all drafts"
+                className="px-3.5 py-2.5 text-xs font-bold text-slate-950 bg-gradient-to-r from-amber-400 via-amber-500 to-amber-400 hover:from-amber-300 hover:to-amber-500 rounded-xl transition-all shadow-md shadow-amber-500/20 min-h-[44px] flex items-center gap-2 active:scale-95"
+              >
+                <FileText className="w-4 h-4 text-slate-950" />
+                <span>Download All (PDF)</span>
+              </button>
+
+              <button
+                onClick={handleOpenPrintView}
+                title="Open clean print-formatted dossier for printing or saving to PDF"
+                className="px-3 py-2.5 text-xs font-medium text-slate-300 hover:text-white bg-[#101c36] hover:bg-[#18284d] border border-[#1e325c] rounded-xl transition-all min-h-[44px] flex items-center gap-1.5 active:scale-95"
+              >
+                <Printer className="w-4 h-4 text-slate-300" />
+                <span className="hidden sm:inline">Print View</span>
+              </button>
+            </>
+          )}
+
+          <button
+            onClick={onNewDraftClick}
+            className="px-4 py-2.5 text-xs font-bold text-slate-200 bg-[#101c36] hover:bg-[#18284d] border border-[#1e325c] rounded-xl transition-all min-h-[44px] flex items-center gap-1.5 active:scale-95"
+          >
+            <span>+ Create Draft</span>
+          </button>
+        </div>
       </div>
 
       {/* Search & Filter Controls Bar */}
@@ -234,18 +353,18 @@ export const DraftsView: React.FC<DraftsViewProps> = ({
           />
         </div>
 
-        {/* Platform & Tone Filters */}
+        {/* 5 Channels & Tone Filters (Requirement 2 & 6) */}
         <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-[#18284d]/60">
-          {/* Platform Segmented Tabs */}
           <div className="flex flex-wrap items-center gap-1">
             <span className="text-[11px] font-medium text-slate-400 mr-1 flex items-center gap-1">
               <Filter className="w-3 h-3 text-amber-400" />
               <span>Channel:</span>
             </span>
             {[
-              { id: 'all' as const, label: 'All Channels' },
+              { id: 'all' as const, label: 'All' },
               { id: 'linkedin' as const, label: 'LinkedIn' },
               { id: 'x' as const, label: 'X (Twitter)' },
+              { id: 'threads' as const, label: 'Threads' },
               { id: 'instagram' as const, label: 'Instagram' },
               { id: 'facebook' as const, label: 'Facebook' },
             ].map((item) => (
@@ -264,7 +383,6 @@ export const DraftsView: React.FC<DraftsViewProps> = ({
             ))}
           </div>
 
-          {/* Tone Filter */}
           <div className="flex items-center gap-1.5 text-xs">
             <span className="text-[11px] text-slate-400">Tone:</span>
             <select
@@ -277,6 +395,7 @@ export const DraftsView: React.FC<DraftsViewProps> = ({
               <option value="conversational">Conversational</option>
               <option value="high-energy">High-Energy</option>
               <option value="executive">Executive</option>
+              <option value="provocative">Provocative</option>
             </select>
           </div>
         </div>
@@ -311,6 +430,8 @@ export const DraftsView: React.FC<DraftsViewProps> = ({
         <div className="space-y-4">
           {filteredDrafts.map((draft) => {
             const isExpanded = expandedDraftId === draft.id;
+            const currentVersionKey = expandedVersions[draft.id] || 'versionA';
+
             return (
               <div
                 key={draft.id}
@@ -330,6 +451,10 @@ export const DraftsView: React.FC<DraftsViewProps> = ({
                         </span>
                         <span>·</span>
                         <span className="capitalize text-slate-300 font-medium">
+                          {draft.contentLength || 'standard'} length
+                        </span>
+                        <span>·</span>
+                        <span className="capitalize text-slate-400 font-medium">
                           {draft.focusAngle}
                         </span>
                         <span>·</span>
@@ -347,8 +472,15 @@ export const DraftsView: React.FC<DraftsViewProps> = ({
                       </h2>
                     </div>
 
-                    {/* Actions: Export, Edit & Delete */}
+                    {/* Actions: Export PDF, TXT, Edit & Delete */}
                     <div className="flex items-center gap-1 self-end sm:self-auto shrink-0">
+                      <button
+                        onClick={() => handleDownloadSinglePdf(draft)}
+                        title="Download Campaign as PDF (Reading & Print)"
+                        className="p-2 text-amber-400 hover:text-amber-300 hover:bg-amber-400/10 rounded-xl transition-colors min-h-[40px] min-w-[40px] flex items-center justify-center"
+                      >
+                        <FileText className="w-4 h-4 text-amber-400" />
+                      </button>
                       <button
                         onClick={() => handleExportDraft(draft)}
                         title="Download Campaign as .TXT"
@@ -393,72 +525,40 @@ export const DraftsView: React.FC<DraftsViewProps> = ({
                     </div>
                   )}
 
-                  {/* 4 Quick Copy Buttons Directly on Card */}
+                  {/* 5 Quick Copy Buttons Directly on Card (Requirement 2) */}
                   <div className="pt-3 border-t border-[#18284d]/60 flex flex-wrap items-center justify-between gap-2">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className="text-[11px] text-slate-400 font-medium mr-1">Copy:</span>
-                      <button
-                        onClick={() =>
-                          handleCopy(draft.platforms?.linkedin?.fullPost || '', 'LinkedIn', draft.id)
-                        }
-                        className="px-2.5 py-1.5 text-xs font-semibold bg-[#101c36] hover:bg-amber-400 hover:text-slate-950 text-slate-200 rounded-lg transition-colors flex items-center gap-1 min-h-[38px] active:scale-95"
-                      >
-                        {copiedKey === `${draft.id}-LinkedIn` ? (
-                          <Check className="w-3 h-3 text-emerald-400" />
-                        ) : (
-                          <Copy className="w-3 h-3" />
-                        )}
-                        <span>LinkedIn</span>
-                      </button>
-
-                      <button
-                        onClick={() =>
-                          handleCopy(draft.platforms?.x?.fullPost || '', 'X', draft.id)
-                        }
-                        className="px-2.5 py-1.5 text-xs font-semibold bg-[#101c36] hover:bg-amber-400 hover:text-slate-950 text-slate-200 rounded-lg transition-colors flex items-center gap-1 min-h-[38px] active:scale-95"
-                      >
-                        {copiedKey === `${draft.id}-X` ? (
-                          <Check className="w-3 h-3 text-emerald-400" />
-                        ) : (
-                          <Copy className="w-3 h-3" />
-                        )}
-                        <span>X</span>
-                      </button>
-
-                      <button
-                        onClick={() =>
-                          handleCopy(draft.platforms?.instagram?.fullPost || '', 'Instagram', draft.id)
-                        }
-                        className="px-2.5 py-1.5 text-xs font-semibold bg-[#101c36] hover:bg-amber-400 hover:text-slate-950 text-slate-200 rounded-lg transition-colors flex items-center gap-1 min-h-[38px] active:scale-95"
-                      >
-                        {copiedKey === `${draft.id}-Instagram` ? (
-                          <Check className="w-3 h-3 text-emerald-400" />
-                        ) : (
-                          <Copy className="w-3 h-3" />
-                        )}
-                        <span>Instagram</span>
-                      </button>
-
-                      <button
-                        onClick={() =>
-                          handleCopy(draft.platforms?.facebook?.fullPost || '', 'Facebook', draft.id)
-                        }
-                        className="px-2.5 py-1.5 text-xs font-semibold bg-[#101c36] hover:bg-amber-400 hover:text-slate-950 text-slate-200 rounded-lg transition-colors flex items-center gap-1 min-h-[38px] active:scale-95"
-                      >
-                        {copiedKey === `${draft.id}-Facebook` ? (
-                          <Check className="w-3 h-3 text-emerald-400" />
-                        ) : (
-                          <Copy className="w-3 h-3" />
-                        )}
-                        <span>Facebook</span>
-                      </button>
+                      {[
+                        { key: 'linkedin' as PlatformKey, label: 'LinkedIn', code: 'LI' },
+                        { key: 'x' as PlatformKey, label: 'X', code: 'X' },
+                        { key: 'threads' as PlatformKey, label: 'Threads', code: 'TH' },
+                        { key: 'instagram' as PlatformKey, label: 'Instagram', code: 'IG' },
+                        { key: 'facebook' as PlatformKey, label: 'Facebook', code: 'FB' },
+                      ].map((p) => {
+                        const postText = getPlatformPostText(draft.platforms?.[p.key], currentVersionKey);
+                        return (
+                          <button
+                            key={p.key}
+                            onClick={() => handleCopy(postText, p.label, draft.id)}
+                            className="px-2.5 py-1.5 text-xs font-semibold bg-[#101c36] hover:bg-amber-400 hover:text-slate-950 text-slate-200 rounded-lg transition-colors flex items-center gap-1 min-h-[38px] active:scale-95"
+                          >
+                            {copiedKey === `${draft.id}-${p.label}` ? (
+                              <Check className="w-3 h-3 text-emerald-400" />
+                            ) : (
+                              <Copy className="w-3 h-3" />
+                            )}
+                            <span>{p.code}</span>
+                          </button>
+                        );
+                      })}
                     </div>
 
                     <button
                       onClick={() => setExpandedDraftId(isExpanded ? null : draft.id)}
                       className="text-xs text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1 transition-colors min-h-[38px] px-2"
                     >
-                      <span>{isExpanded ? 'Hide Previews' : 'Expand All Posts'}</span>
+                      <span>{isExpanded ? 'Hide Previews' : 'Expand All Channels'}</span>
                       {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                     </button>
                   </div>
@@ -467,13 +567,47 @@ export const DraftsView: React.FC<DraftsViewProps> = ({
                 {/* Expanded Platform Detail Accordion */}
                 {isExpanded && draft.platforms && (
                   <div className="bg-[#070c18] border-t border-[#18284d] p-4 md:p-6 space-y-4 animate-in fade-in duration-150">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Version Switcher (Requirement 3) */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-[#0b1325] border border-[#18284d] rounded-xl text-xs">
+                      <span className="font-semibold text-slate-300">View Version:</span>
+                      <div className="flex items-center gap-1.5">
+                        {[
+                          { key: 'versionA' as ContentVersionKey, label: 'Ver A: Professional' },
+                          { key: 'versionB' as ContentVersionKey, label: 'Ver B: Strong Engagement' },
+                          { key: 'versionC' as ContentVersionKey, label: 'Ver C: Short & Powerful' },
+                        ].map((v) => (
+                          <button
+                            key={v.key}
+                            type="button"
+                            onClick={() =>
+                              setExpandedVersions((prev) => ({ ...prev, [draft.id]: v.key }))
+                            }
+                            className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                              currentVersionKey === v.key
+                                ? 'bg-amber-400 text-slate-950 font-bold'
+                                : 'text-slate-400 hover:text-white bg-[#070c18]'
+                            }`}
+                          >
+                            {v.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* 5 Platform Previews Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                       {/* LinkedIn */}
                       <div className="p-4 rounded-xl bg-[#0b1325] border border-[#18284d] space-y-2">
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-bold text-sky-400 font-mono">[LI] LinkedIn</span>
                           <button
-                            onClick={() => handleCopy(draft.platforms.linkedin?.fullPost || '', 'LinkedIn', draft.id)}
+                            onClick={() =>
+                              handleCopy(
+                                getPlatformPostText(draft.platforms?.linkedin, currentVersionKey),
+                                'LinkedIn',
+                                draft.id
+                              )
+                            }
                             className="text-xs text-amber-400 hover:underline flex items-center gap-1 min-h-[32px] px-1"
                           >
                             <Copy className="w-3 h-3" />
@@ -481,7 +615,7 @@ export const DraftsView: React.FC<DraftsViewProps> = ({
                           </button>
                         </div>
                         <p className="text-xs text-slate-200 whitespace-pre-wrap leading-relaxed max-h-56 overflow-y-auto pr-1">
-                          {draft.platforms.linkedin?.fullPost || 'No LinkedIn copy generated.'}
+                          {getPlatformPostText(draft.platforms?.linkedin, currentVersionKey)}
                         </p>
                       </div>
 
@@ -490,7 +624,13 @@ export const DraftsView: React.FC<DraftsViewProps> = ({
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-bold text-slate-200 font-mono">[X] X (Twitter)</span>
                           <button
-                            onClick={() => handleCopy(draft.platforms.x?.fullPost || '', 'X', draft.id)}
+                            onClick={() =>
+                              handleCopy(
+                                getPlatformPostText(draft.platforms?.x, currentVersionKey),
+                                'X',
+                                draft.id
+                              )
+                            }
                             className="text-xs text-amber-400 hover:underline flex items-center gap-1 min-h-[32px] px-1"
                           >
                             <Copy className="w-3 h-3" />
@@ -498,7 +638,30 @@ export const DraftsView: React.FC<DraftsViewProps> = ({
                           </button>
                         </div>
                         <p className="text-xs text-slate-200 whitespace-pre-wrap leading-relaxed max-h-56 overflow-y-auto pr-1">
-                          {draft.platforms.x?.fullPost || 'No X copy generated.'}
+                          {getPlatformPostText(draft.platforms?.x, currentVersionKey)}
+                        </p>
+                      </div>
+
+                      {/* Threads (Requirement 2) */}
+                      <div className="p-4 rounded-xl bg-[#0b1325] border border-[#18284d] space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-purple-400 font-mono">[TH] Threads</span>
+                          <button
+                            onClick={() =>
+                              handleCopy(
+                                getPlatformPostText(draft.platforms?.threads, currentVersionKey),
+                                'Threads',
+                                draft.id
+                              )
+                            }
+                            className="text-xs text-amber-400 hover:underline flex items-center gap-1 min-h-[32px] px-1"
+                          >
+                            <Copy className="w-3 h-3" />
+                            <span>Copy</span>
+                          </button>
+                        </div>
+                        <p className="text-xs text-slate-200 whitespace-pre-wrap leading-relaxed max-h-56 overflow-y-auto pr-1">
+                          {getPlatformPostText(draft.platforms?.threads, currentVersionKey)}
                         </p>
                       </div>
 
@@ -507,7 +670,13 @@ export const DraftsView: React.FC<DraftsViewProps> = ({
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-bold text-pink-400 font-mono">[IG] Instagram</span>
                           <button
-                            onClick={() => handleCopy(draft.platforms.instagram?.fullPost || '', 'Instagram', draft.id)}
+                            onClick={() =>
+                              handleCopy(
+                                getPlatformPostText(draft.platforms?.instagram, currentVersionKey),
+                                'Instagram',
+                                draft.id
+                              )
+                            }
                             className="text-xs text-amber-400 hover:underline flex items-center gap-1 min-h-[32px] px-1"
                           >
                             <Copy className="w-3 h-3" />
@@ -515,7 +684,7 @@ export const DraftsView: React.FC<DraftsViewProps> = ({
                           </button>
                         </div>
                         <p className="text-xs text-slate-200 whitespace-pre-wrap leading-relaxed max-h-56 overflow-y-auto pr-1">
-                          {draft.platforms.instagram?.fullPost || 'No Instagram copy generated.'}
+                          {getPlatformPostText(draft.platforms?.instagram, currentVersionKey)}
                         </p>
                       </div>
 
@@ -524,7 +693,13 @@ export const DraftsView: React.FC<DraftsViewProps> = ({
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-bold text-blue-400 font-mono">[FB] Facebook</span>
                           <button
-                            onClick={() => handleCopy(draft.platforms.facebook?.fullPost || '', 'Facebook', draft.id)}
+                            onClick={() =>
+                              handleCopy(
+                                getPlatformPostText(draft.platforms?.facebook, currentVersionKey),
+                                'Facebook',
+                                draft.id
+                              )
+                            }
                             className="text-xs text-amber-400 hover:underline flex items-center gap-1 min-h-[32px] px-1"
                           >
                             <Copy className="w-3 h-3" />
@@ -532,10 +707,46 @@ export const DraftsView: React.FC<DraftsViewProps> = ({
                           </button>
                         </div>
                         <p className="text-xs text-slate-200 whitespace-pre-wrap leading-relaxed max-h-56 overflow-y-auto pr-1">
-                          {draft.platforms.facebook?.fullPost || 'No Facebook copy generated.'}
+                          {getPlatformPostText(draft.platforms?.facebook, currentVersionKey)}
                         </p>
                       </div>
                     </div>
+
+                    {/* Instagram 6-Slide Carousel Script Display if available (Requirement 4) */}
+                    {draft.platforms?.instagram?.carouselScript && draft.platforms.instagram.carouselScript.length > 0 && (
+                      <div className="p-4 rounded-xl bg-[#0b1325] border border-pink-500/20 space-y-3">
+                        <div className="flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-2 font-bold text-pink-400">
+                            <Layers className="w-4 h-4 text-pink-400" />
+                            <span>Instagram 6-Slide Carousel Script</span>
+                          </div>
+                          <button
+                            onClick={async () => {
+                              const scriptText = draft.platforms.instagram.carouselScript.map((s) =>
+                                `Slide ${s.slideNumber}: ${s.headline}\n${s.supportingText}\nVisual: ${s.visualSuggestion}\nHook: ${s.transitionHook}`
+                              ).join('\n\n');
+                              await copyToClipboard(scriptText);
+                              showToast('info', '6-Slide Carousel Script Copied');
+                            }}
+                            className="text-xs text-amber-400 hover:underline flex items-center gap-1"
+                          >
+                            <Copy className="w-3 h-3" />
+                            <span>Copy 6-Slide Script</span>
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 text-xs">
+                          {draft.platforms.instagram.carouselScript.map((s) => (
+                            <div key={s.slideNumber} className="p-2.5 rounded-lg bg-[#070c18] border border-[#18284d] space-y-1">
+                              <span className="text-[10px] font-bold text-amber-400 font-mono">Slide {s.slideNumber}:</span>
+                              <div className="font-semibold text-white">{s.headline}</div>
+                              <p className="text-slate-300 text-[11px]">{s.supportingText}</p>
+                              <div className="text-[10px] text-slate-400 italic pt-0.5">Visual: {s.visualSuggestion}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -587,17 +798,17 @@ export const DraftsView: React.FC<DraftsViewProps> = ({
         </div>
       )}
 
-      {/* Edit Draft Modal with Preserved Multi-Platform Edits */}
+      {/* Edit Draft Modal with Preserved Multi-Platform & Version Edits */}
       {editingDraft && editPlatforms && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-150">
           <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto p-5 md:p-6 rounded-2xl md:rounded-3xl bg-[#0b1325] border border-amber-500/30 space-y-4 shadow-2xl">
             <div className="flex items-center justify-between pb-3 border-b border-[#18284d]">
               <div>
                 <h3 className="font-['Outfit'] font-bold text-white text-lg">
-                  Edit Vault Draft
+                  Edit Vault Draft (V2.0)
                 </h3>
                 <p className="text-xs text-slate-400">
-                  Fine-tune article details and channel copies
+                  Fine-tune article details, channels, and specific version copy
                 </p>
               </div>
               <button
@@ -640,23 +851,18 @@ export const DraftsView: React.FC<DraftsViewProps> = ({
                 />
               </div>
 
-              {/* Platform Selector for text editing */}
+              {/* Channel Selector for text editing (All 5 platforms) */}
               <div className="space-y-2 pt-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-slate-200">
-                    Channel Copy to Modify:
-                  </label>
-                  <span className="text-[11px] font-mono text-slate-400">
-                    {editPlatforms[editPlatformKey]?.fullPost?.length || 0} chars
-                  </span>
-                </div>
-                <div className="grid grid-cols-4 gap-2">
-                  {(['linkedin', 'x', 'instagram', 'facebook'] as PlatformKey[]).map((p) => (
+                <label className="text-xs font-semibold text-slate-200">
+                  Select Channel to Modify:
+                </label>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {(['linkedin', 'x', 'threads', 'instagram', 'facebook'] as PlatformKey[]).map((p) => (
                     <button
                       key={p}
                       type="button"
                       onClick={() => setEditPlatformKey(p)}
-                      className={`py-2 px-2 rounded-xl text-xs font-semibold capitalize transition-all min-h-[40px] ${
+                      className={`py-2 px-1 rounded-xl text-xs font-semibold capitalize transition-all min-h-[40px] truncate ${
                         editPlatformKey === p
                           ? 'bg-amber-400 text-slate-950 font-bold shadow-md shadow-amber-500/20'
                           : 'bg-[#070c18] text-slate-400 hover:text-white border border-[#18284d]'
@@ -667,9 +873,27 @@ export const DraftsView: React.FC<DraftsViewProps> = ({
                   ))}
                 </div>
 
+                {/* Version Selector inside modal */}
+                <div className="flex items-center gap-1.5 pt-1">
+                  {(['versionA', 'versionB', 'versionC'] as ContentVersionKey[]).map((vk) => (
+                    <button
+                      key={vk}
+                      type="button"
+                      onClick={() => setEditVersionKey(vk)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors ${
+                        editVersionKey === vk
+                          ? 'bg-amber-400 text-slate-950 font-bold'
+                          : 'bg-[#070c18] text-slate-400 hover:text-white border border-[#18284d]'
+                      }`}
+                    >
+                      {vk.replace('version', 'Version ')}
+                    </button>
+                  ))}
+                </div>
+
                 <textarea
                   rows={7}
-                  value={editPlatforms[editPlatformKey]?.fullPost || ''}
+                  value={getPlatformPostText(editPlatforms[editPlatformKey], editVersionKey)}
                   onChange={(e) => handleEditPlatformTextChange(e.target.value)}
                   className="w-full p-3.5 bg-[#070c18] border border-amber-500/40 rounded-xl text-xs md:text-sm text-slate-100 font-sans leading-relaxed resize-y"
                 />
